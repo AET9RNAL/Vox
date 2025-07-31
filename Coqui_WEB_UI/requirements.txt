@@ -1,7 +1,11 @@
-TTS
+TTS==0.22.0
 gradio
 srt
 num2words
 pooch
 soundfile
-numpy
+numpy<2.0
+torch==2.1.2
+torchaudio==2.1.2
+transformers==4.35.2
+openai-whisper

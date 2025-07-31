@@ -37,10 +37,11 @@ IF %ERRORLEVEL% NEQ 0 (
     echo [INFO] Environment not found. Creating it now...
     CALL conda create --name %ENV_NAME% python=%PYTHON_VERSION% -y
     
-    echo [INFO] Verifying environment creation...
-    CALL conda env list | findstr /C:"%ENV_NAME%" >nul 2>&1
+    echo [INFO] Verifying environment creation with a direct command...
+    CALL conda run -n %ENV_NAME% python --version >nul 2>&1
     IF %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to create or verify the Conda environment.
+        echo Please check the output above. You may need to run 'conda clean --all' and try again.
         pause
         exit /b 1
     )
@@ -51,7 +52,7 @@ IF %ERRORLEVEL% NEQ 0 (
 
 REM --- Ensure all packages are installed ---
 echo [INFO] Installing/verifying packages from %REQUIREMENTS_FILE%. This may take a moment...
-CALL conda run -n %ENV_NAME% pip install -r %REQUIREMENTS_FILE% >nul
+CALL conda run -n %ENV_NAME% pip install -r %REQUIREMENTS_FILE%
 IF %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Failed to install packages from %REQUIREMENTS_FILE%.
     pause
