@@ -1,0 +1,7 @@
+TTS
+gradio
+srt
+num2words
+pooch
+soundfile
+numpy
