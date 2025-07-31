@@ -13,6 +13,7 @@ from datetime import timedelta, datetime
 import pooch
 import tempfile
 import whisper
+import json
 
 # ✨ Import the necessary config classes for PyTorch's safelist
 from TTS.tts.configs.xtts_config import XttsConfig
@@ -30,7 +31,18 @@ SAMPLE_RATE = 24000  # XTTS uses a 24kHz sample rate
 # Global variables to hold the models
 tts_model = None
 whisper_model = None
-USE_CUDA = torch.cuda.is_available()
+current_tts_device = None
+current_whisper_device = None
+current_whisper_model_size = None
+
+# --- Device Auto-Detection ---
+def get_available_devices():
+    """Checks for CUDA availability and returns a list of devices."""
+    if torch.cuda.is_available():
+        return ["cuda", "cpu"]
+    return ["cpu"]
+
+AVAILABLE_DEVICES = get_available_devices()
 
 # Dictionary of available stock voices and their public URLs (UPDATED)
 STOCK_VOICES = {
@@ -49,37 +61,39 @@ SUPPORTED_LANGUAGES = [
 # --- Model Loading Functions ---
 # ========================================================================================
 
-def load_tts_model():
-    """Loads the Coqui TTS model into a global variable."""
-    global tts_model
-    if tts_model is None:
-        print("✅ Python script started. Initializing Coqui XTTS v2 model...")
-        print("⏳ This may take a long time on the first run as it downloads the model (several GB).")
-        if not USE_CUDA:
-            print("🟡 WARNING: CUDA not available for TTS, using CPU. This will be very slow.")
-        else:
-            print("✅ CUDA is available for TTS, using GPU.")
+def load_tts_model(device):
+    """Loads the Coqui TTS model to the specified device."""
+    global tts_model, current_tts_device
+    if tts_model is None or current_tts_device != device:
+        print(f"⏳ Loading Coqui TTS model to device: {device}...")
+        print("This may take a long time on the first run as it downloads the model (several GB).")
         
         try:
-            tts_model = TTS(MODEL_NAME, gpu=USE_CUDA)
-            print("✅ TTS Model loaded successfully.")
+            tts_model = TTS(MODEL_NAME, gpu=(device == 'cuda'))
+            current_tts_device = device
+            print(f"✅ TTS Model loaded successfully on {device}.")
         except Exception as e:
             print(f"❌ Failed to load Coqui TTS model. Error: {e}")
             raise RuntimeError(f"Failed to load TTS model: {e}")
+    return "TTS model is ready."
 
-def load_whisper_model(model_size):
-    """Loads the Whisper model into a global variable."""
-    global whisper_model
-    print(f"⏳ Loading Whisper model: {model_size}...")
-    if not USE_CUDA:
-        print("🟡 WARNING: CUDA not available for Whisper, using CPU. Transcription will be slow.")
-    
+
+def load_whisper_model(model_size, device):
+    """Loads the Whisper model to the specified device."""
+    global whisper_model, current_whisper_device, current_whisper_model_size
+    if whisper_model is not None and current_whisper_model_size == model_size and current_whisper_device == device:
+        return "Whisper model is already loaded."
+
+    print(f"⏳ Loading Whisper model '{model_size}' to device: {device}...")
     try:
-        whisper_model = whisper.load_model(model_size)
-        print("✅ Whisper Model loaded successfully.")
+        whisper_model = whisper.load_model(model_size, device=device)
+        current_whisper_device = device
+        current_whisper_model_size = model_size
+        print(f"✅ Whisper Model loaded successfully on {device}.")
     except Exception as e:
         print(f"❌ Failed to load Whisper model. Error: {e}")
         raise RuntimeError(f"Failed to load Whisper model: {e}")
+    return "Whisper model is ready."
 
 # ========================================================================================
 # --- Core Logic Functions ---
@@ -185,7 +199,7 @@ def create_voiceover(segments, output_path, tts_instance, speaker_wav, language,
 
 def run_tts_generation(
     input_file, language, voice_mode, clone_speaker_audio, stock_voice,
-    output_format, srt_timing_mode, progress=gr.Progress(track_tqdm=True)
+    output_format, srt_timing_mode, tts_device, progress=gr.Progress(track_tqdm=True)
 ):
     if input_file is None:
         return None, "❌ Error: Please upload an input file (.txt, .srt, or .vtt)."
@@ -193,7 +207,9 @@ def run_tts_generation(
         return None, "❌ Error: Please upload a speaker audio file for cloning."
 
     try:
-        progress(0, desc="Starting TTS Generation...")
+        progress(0, desc="Loading TTS Model...")
+        load_tts_model(tts_device)
+        progress(0.1, desc="Starting TTS Generation...")
         
         speaker_wav_for_tts = None
         if voice_mode == 'Clone':
@@ -250,14 +266,14 @@ def run_tts_generation(
         return None, f"❌ An unexpected error occurred: {e}"
 
 def run_whisper_transcription(
-    audio_file_path, model_size, language, task, output_action, progress=gr.Progress(track_tqdm=True)
+    audio_file_path, model_size, language, task, output_action, whisper_device, progress=gr.Progress(track_tqdm=True)
 ):
     if audio_file_path is None:
-        return "❌ Error: Please upload an audio file.", None, None
+        return "❌ Error: Please upload an audio file.", "", [], gr.update()
 
     try:
         progress(0, desc="Loading Whisper Model...")
-        load_whisper_model(model_size)
+        load_whisper_model(model_size, whisper_device)
         
         lang = language if language and language.strip() else None
 
@@ -267,43 +283,57 @@ def run_whisper_transcription(
         full_text = result['text']
         
         if output_action == "Display Only":
-            return full_text, None, gr.update()
+            return full_text, "", [], gr.update()
 
         output_dir = "whisper_outputs"
         os.makedirs(output_dir, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(audio_file_path))[0]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # --- Generate all file contents ---
+        txt_content = full_text
+        
+        srt_segments = []
+        for i, seg in enumerate(result['segments']):
+            start_time = timedelta(seconds=seg['start'])
+            end_time = timedelta(seconds=seg['end'])
+            srt_segments.append(srt.Subtitle(index=i+1, start=start_time, end=end_time, content=seg['text'].strip()))
+        srt_content = srt.compose(srt_segments)
 
-        if output_action == "Save to .txt file":
-            txt_filename = f"{base_name}_{timestamp}.txt"
-            txt_filepath = os.path.join(output_dir, txt_filename)
-            with open(txt_filepath, 'w', encoding='utf-8') as f:
-                f.write(full_text)
-            return f"✅ Saved to {txt_filepath}", txt_filepath, gr.update()
+        vtt_content = "WEBVTT\n\n"
+        for seg in result['segments']:
+            start, end, text = seg['start'], seg['end'], seg['text']
+            start_time = f"{int(start//3600):02}:{int((start%3600)//60):02}:{int(start%60):02}.{int((start*1000)%1000):03}"
+            end_time = f"{int(end//3600):02}:{int((end%3600)//60):02}:{int(end%60):02}.{int((end*1000)%1000):03}"
+            vtt_content += f"{start_time} --> {end_time}\n{text.strip()}\n\n"
 
-        elif output_action == "Save to .srt file":
-            srt_filename = f"{base_name}_{timestamp}.srt"
-            srt_filepath = os.path.join(output_dir, srt_filename)
-            segments = []
-            for i, seg in enumerate(result['segments']):
-                start_time = timedelta(seconds=seg['start'])
-                end_time = timedelta(seconds=seg['end'])
-                segments.append(srt.Subtitle(index=i+1, start=start_time, end=end_time, content=seg['text'].strip()))
-            with open(srt_filepath, 'w', encoding='utf-8') as f:
-                f.write(srt.compose(segments))
-            return f"✅ Saved to {srt_filepath}", srt_filepath, gr.update()
+        json_content = json.dumps(result, indent=2, ensure_ascii=False)
 
-        elif output_action == "Pipeline to TTS":
-            pipeline_filename = f"{base_name}_{timestamp}_pipelined.txt"
+        # --- Handle output actions ---
+        if output_action == "Save All Formats (.txt, .srt, .vtt, .json)":
+            file_paths = []
+            for ext, content in [("txt", txt_content), ("srt", srt_content), ("vtt", vtt_content), ("json", json_content)]:
+                filename = f"{base_name}_{timestamp}.{ext}"
+                filepath = os.path.join(output_dir, filename)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                file_paths.append(filepath)
+            return full_text, srt_content, file_paths, gr.update()
+
+        elif "Pipeline" in output_action:
+            ext = "txt" if output_action == "Pipeline .txt to TTS" else "srt"
+            content = txt_content if ext == "txt" else srt_content
+            
+            pipeline_filename = f"{base_name}_{timestamp}_pipelined.{ext}"
             pipeline_filepath = os.path.join(output_dir, pipeline_filename)
             with open(pipeline_filepath, 'w', encoding='utf-8') as f:
-                f.write(full_text)
+                f.write(content)
             
-            return "✅ Pipelined to TTS tab.", None, gr.update(value=pipeline_filepath)
+            return full_text, content, [pipeline_filepath], gr.update(value=pipeline_filepath)
 
     except Exception as e:
         print(f"An error occurred during transcription: {e}")
-        return f"❌ An unexpected error occurred: {e}", None, gr.update()
+        return f"❌ An unexpected error occurred: {e}", "", [], gr.update()
 
 # ========================================================================================
 # --- Gradio UI ---
@@ -321,6 +351,11 @@ def create_gradio_ui():
             </div>
             """
         )
+        
+        with gr.Accordion("⚙️ Global Device Settings", open=False):
+            with gr.Row():
+                tts_device = gr.Radio(label="TTS Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
+                whisper_device = gr.Radio(label="Whisper Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
 
         with gr.Tabs() as tabs:
             with gr.Tab("Whisper Transcription", id=0):
@@ -341,7 +376,7 @@ def create_gradio_ui():
                         gr.Markdown("## 3. Choose Output Action")
                         whisper_output_action = gr.Radio(
                             label="Action",
-                            choices=["Display Only", "Save to .txt file", "Save to .srt file", "Pipeline to TTS"],
+                            choices=["Display Only", "Save All Formats (.txt, .srt, .vtt, .json)", "Pipeline .txt to TTS", "Pipeline .srt to TTS"],
                             value="Display Only"
                         )
                         
@@ -349,8 +384,13 @@ def create_gradio_ui():
 
                     with gr.Column(scale=2):
                         gr.Markdown("## Transcription Result")
-                        whisper_output_text = gr.Textbox(label="Output Text", lines=15, interactive=False)
-                        whisper_output_file = gr.File(label="Generated File", interactive=False)
+                        whisper_output_text = gr.Textbox(label="Output Text", lines=10, interactive=False)
+                        
+                        with gr.Accordion("File Content Preview & Downloads", open=False):
+                            # --- FIX: Removed the 'language' parameter entirely ---
+                            whisper_file_preview = gr.Code(label="File Preview", lines=10, interactive=False)
+                            whisper_output_files = gr.File(label="Generated Files", interactive=False)
+                        
                         whisper_info_box = gr.Markdown(visible=False)
 
             with gr.Tab("TTS Voiceover", id=1):
@@ -389,7 +429,6 @@ def create_gradio_ui():
         
         # --- Event Handling ---
         
-        # Whisper Tab Logic
         def handle_whisper_model_change(model_choice):
             if model_choice == "turbo":
                 info_text = "⚠️ **Note:** The `turbo` model does not support translation. The task has been set to `transcribe`."
@@ -410,15 +449,14 @@ def create_gradio_ui():
 
         transcribe_btn.click(
             fn=run_whisper_transcription,
-            inputs=[whisper_audio_input, whisper_model_size, whisper_language, whisper_task, whisper_output_action],
-            outputs=[whisper_output_text, whisper_output_file, tts_input_file]
+            inputs=[whisper_audio_input, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_device],
+            outputs=[whisper_output_text, whisper_file_preview, whisper_output_files, tts_input_file]
         ).then(
             fn=pipeline_to_tts,
             inputs=[tts_input_file],
             outputs=[tts_input_file, tabs]
         )
 
-        # TTS Tab Logic
         def update_voice_mode(mode):
             is_clone = mode == 'Clone'
             return {
@@ -436,17 +474,17 @@ def create_gradio_ui():
             fn=run_tts_generation,
             inputs=[
                 tts_input_file, tts_language, tts_voice_mode, tts_clone_speaker_audio,
-                tts_stock_voice, tts_output_format, tts_srt_timing_mode
+                tts_stock_voice, tts_output_format, tts_srt_timing_mode, tts_device
             ],
             outputs=[tts_output_audio, tts_status_textbox]
         )
     return demo
 
 if __name__ == "__main__":
-    load_tts_model() # Load TTS model at startup
+    # Models are now loaded on-demand based on device selection
     app = create_gradio_ui()
     
-    print("\n✅ TTS Model loaded. Launching Gradio Web UI...")
+    print("\n✅ Gradio UI created. Launching Web UI...")
     print("➡️ Access the UI by opening the 'Running on local URL' link below in your browser.")
     
     app.launch(share=True)

@@ -1,7 +1,8 @@
 @echo off
 REM ============================================================================
 REM  Final script to set up the Conda environment and launch the
-REM  Coqui TTS Gradio WebUI.
+REM  Coqui TTS Gradio WebUI. This version includes a specific PyTorch
+REM  installation to ensure GPU support.
 REM ============================================================================
 
 SET ENV_NAME=coqui_tts_env
@@ -37,11 +38,10 @@ IF %ERRORLEVEL% NEQ 0 (
     echo [INFO] Environment not found. Creating it now...
     CALL conda create --name %ENV_NAME% python=%PYTHON_VERSION% -y
     
-    echo [INFO] Verifying environment creation with a direct command...
+    echo [INFO] Verifying environment creation...
     CALL conda run -n %ENV_NAME% python --version >nul 2>&1
     IF %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to create or verify the Conda environment.
-        echo Please check the output above. You may need to run 'conda clean --all' and try again.
         pause
         exit /b 1
     )
@@ -50,8 +50,18 @@ IF %ERRORLEVEL% NEQ 0 (
     echo [INFO] Environment '%ENV_NAME%' already exists.
 )
 
-REM --- Ensure all packages are installed ---
-echo [INFO] Installing/verifying packages from %REQUIREMENTS_FILE%. This may take a moment...
+REM --- STEP 3.5: Install PyTorch with CUDA support ---
+echo [INFO] Installing PyTorch with CUDA support. This is a large download and may take some time...
+CALL conda run -n %ENV_NAME% conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
+IF %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Failed to install PyTorch with CUDA. Please check your internet connection and NVIDIA drivers.
+    pause
+    exit /b 1
+)
+echo [INFO] PyTorch installed successfully.
+
+REM --- Ensure all other packages are installed ---
+echo [INFO] Installing remaining packages from %REQUIREMENTS_FILE%...
 CALL conda run -n %ENV_NAME% pip install -r %REQUIREMENTS_FILE%
 IF %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Failed to install packages from %REQUIREMENTS_FILE%.
