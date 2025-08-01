@@ -216,7 +216,11 @@ def save_whisper_config(*args):
         "remove_words_str_enabled", "words_to_remove", "find_replace_enabled", "find_word", "replace_word",
         "split_by_gap_enabled", "split_by_gap_value",
         "split_by_punctuation_enabled", "split_by_length_enabled", "split_by_length_max_chars", "split_by_length_max_words",
-        "split_by_duration_enabled", "split_by_duration_max_dur"
+        "split_by_duration_enabled", "split_by_duration_max_dur",
+        "merge_by_gap_enabled", "merge_by_gap_min_gap", "merge_by_gap_max_words",
+        "merge_by_punctuation_enabled", "merge_by_punctuation_string",
+        "merge_all_segments_enabled",
+        "fill_gaps_enabled", "fill_gaps_min_gap"
     ]
     config_data = dict(zip(keys, args))
     config_name = config_data.pop("config_name")
@@ -245,7 +249,11 @@ def load_whisper_config(config_name):
         "remove_words_str_enabled", "words_to_remove", "find_replace_enabled", "find_word", "replace_word",
         "split_by_gap_enabled", "split_by_gap_value",
         "split_by_punctuation_enabled", "split_by_length_enabled", "split_by_length_max_chars", "split_by_length_max_words",
-        "split_by_duration_enabled", "split_by_duration_max_dur"
+        "split_by_duration_enabled", "split_by_duration_max_dur",
+        "merge_by_gap_enabled", "merge_by_gap_min_gap", "merge_by_gap_max_words",
+        "merge_by_punctuation_enabled", "merge_by_punctuation_string",
+        "merge_all_segments_enabled",
+        "fill_gaps_enabled", "fill_gaps_min_gap"
     ]
     if not config_name: return [gr.update()] * (len(keys) + 2)
     config_path = os.path.join(WHISPER_CONFIG_LIBRARY_PATH, f"{config_name}.json")
@@ -735,6 +743,10 @@ def run_whisper_transcription(
     split_by_gap_enabled, split_by_gap_value,
     split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
     split_by_duration_enabled, split_by_duration_max_dur,
+    merge_by_gap_enabled, merge_by_gap_min_gap, merge_by_gap_max_words,
+    merge_by_punctuation_enabled, merge_by_punctuation_string,
+    merge_all_segments_enabled,
+    fill_gaps_enabled, fill_gaps_file_input, fill_gaps_min_gap,
     progress=gr.Progress(track_tqdm=True)
 ):
     if audio_file_path is None: return "❌ Error: Please upload an audio file.", "", [], None
@@ -748,14 +760,9 @@ def run_whisper_transcription(
 
         progress(0.2, desc=f"Starting {whisper_engine} {task}...")
         
-        # *** FIX ***: Handle the different output formats from OpenAI Whisper and Stable-TS.
-        # OpenAI Whisper returns a dictionary, while Stable-TS returns an object.
-        # This block normalizes the output so the rest of the function can work with a consistent format.
         if whisper_engine == "OpenAI Whisper":
             result_dict = whisper_model.transcribe(audio_array, language=lang, task=task, verbose=True)
             full_text = result_dict['text']
-            
-            # Create a simple object-like structure (namedtuple) to match what Stable-TS provides.
             Segment = namedtuple('Segment', ['start', 'end', 'text'])
             segments = [Segment(s['start'], s['end'], s['text']) for s in result_dict['segments']]
 
@@ -774,23 +781,43 @@ def run_whisper_transcription(
             
             if post_processing_enabled:
                 progress(0.8, desc="Applying Post-Processing...")
+                
+                # Splitting
                 if split_by_gap_enabled: result_obj.split_by_gap(split_by_gap_value)
-                if split_by_punctuation_enabled:
-                    result_obj.split_by_punctuation(punctuation='.?!,')
+                if split_by_punctuation_enabled: result_obj.split_by_punctuation(punctuation='.?!,')
                 if split_by_length_enabled: result_obj.split_by_length(split_by_length_max_chars, split_by_length_max_words)
                 if split_by_duration_enabled: result_obj.split_by_duration(split_by_duration_max_dur)
+
+                # Merging
+                if merge_by_gap_enabled:
+                    print("Applying Merge by Gap...")
+                    result_obj.merge_by_gap(min_gap=merge_by_gap_min_gap, max_words=merge_by_gap_max_words)
+                if merge_by_punctuation_enabled and merge_by_punctuation_string:
+                    print("Applying Merge by Punctuation...")
+                    punctuation_list = [p.strip() for p in merge_by_punctuation_string.split(',') if p.strip()]
+                    result_obj.merge_by_punctuation(punctuation=punctuation_list)
+                if merge_all_segments_enabled:
+                    print("Merging all segments...")
+                    result_obj.merge_all_segments()
+
+                # Refinement & Cleaning
                 if refine_enabled: stable_whisper_model.refine(audio_array, result_obj, steps=refine_steps, precision=refine_precision, verbose=False)
                 if remove_repetitions_enabled: result_obj.remove_repetition(max_words=remove_repetitions_max_words, verbose=False)
                 if remove_words_str_enabled and words_to_remove:
                     result_obj.remove_words_by_str([w.strip() for w in words_to_remove.split(',') if w.strip()], verbose=False)
                 if find_replace_enabled and find_word and replace_word is not None:
                     result_obj = find_and_replace(result_obj, find_word, replace_word)
-            
-            # Extract text and segments from the Stable-TS result object
+
+                # Filling Gaps (last)
+                if fill_gaps_enabled and fill_gaps_file_input is not None:
+                    print(f"Applying Fill Gaps using file: {fill_gaps_file_input.name}")
+                    try:
+                        result_obj.fill_in_gaps(fill_gaps_file_input.name, min_gap=fill_gaps_min_gap)
+                    except Exception as e:
+                        print(f"⚠️ Warning: Could not fill gaps. Error: {e}")
+
             full_text = result_obj.text
             segments = result_obj.segments
-        
-        # --- From this point on, the code works for both engines ---
         
         if output_action == "Display Only": 
             return full_text, "", [], None
@@ -1132,6 +1159,21 @@ def create_gradio_ui():
                                         find_replace_enabled = gr.Checkbox(label="Enable Find and Replace", value=False)
                                         find_word = gr.Textbox(label="Find Word/Phrase")
                                         replace_word = gr.Textbox(label="Replace With")
+                                    with gr.TabItem("Merging & Filling"):
+                                        gr.Markdown("### Merging Options")
+                                        merge_by_gap_enabled = gr.Checkbox(label="Merge by Gap", value=False)
+                                        merge_by_gap_min_gap = gr.Slider(label="Min Gap (s)", minimum=0.0, maximum=1.0, step=0.05, value=0.1)
+                                        merge_by_gap_max_words = gr.Slider(label="Max Words per Merged Segment", minimum=10, maximum=100, step=5, value=50)
+                                        
+                                        merge_by_punctuation_enabled = gr.Checkbox(label="Merge by Punctuation", value=False)
+                                        merge_by_punctuation_string = gr.Textbox(label="Punctuation to Merge On (comma-separated)", value=".?!,")
+
+                                        merge_all_segments_enabled = gr.Checkbox(label="Merge All Segments into One", value=False)
+                                        
+                                        gr.Markdown("### Fill Gaps")
+                                        fill_gaps_enabled = gr.Checkbox(label="Fill Gaps from another Transcription", value=False)
+                                        fill_gaps_file_input = gr.File(label="Reference Transcription (.json)", file_types=[".json"])
+                                        fill_gaps_min_gap = gr.Slider(label="Min Gap to Fill (s)", minimum=0.0, maximum=2.0, step=0.1, value=0.1)
                         
                         transcribe_btn = gr.Button("Transcribe Audio", variant="primary")
 
@@ -1299,6 +1341,13 @@ def create_gradio_ui():
         clear_cache_button.click(fn=clear_tts_cache, outputs=cache_status)
         
         # Whisper Tab Logic
+        def handle_whisper_model_change(model_choice):
+            if model_choice == "turbo":
+                info_text = "⚠️ **Note:** The `turbo` model does not support translation."
+                return gr.update(value="transcribe", interactive=False), gr.update(value=info_text, visible=True)
+            return gr.update(interactive=True), gr.update(visible=False)
+        whisper_model_size.change(fn=handle_whisper_model_change, inputs=whisper_model_size, outputs=[whisper_task, whisper_info_box])
+
         def handle_whisper_engine_change(engine):
             is_stable = engine == "Stable-TS"
             return gr.update(visible=is_stable), gr.update(visible=is_stable)
@@ -1323,7 +1372,11 @@ def create_gradio_ui():
                 remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
                 split_by_gap_enabled, split_by_gap_value,
                 split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
-                split_by_duration_enabled, split_by_duration_max_dur
+                split_by_duration_enabled, split_by_duration_max_dur,
+                merge_by_gap_enabled, merge_by_gap_min_gap, merge_by_gap_max_words,
+                merge_by_punctuation_enabled, merge_by_punctuation_string,
+                merge_all_segments_enabled,
+                fill_gaps_enabled, fill_gaps_file_input, fill_gaps_min_gap
             ) = args
 
             text_out, preview_out, files_out, tts_input_file_val = run_whisper_transcription(
@@ -1337,7 +1390,11 @@ def create_gradio_ui():
                 remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
                 split_by_gap_enabled, split_by_gap_value,
                 split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
-                split_by_duration_enabled, split_by_duration_max_dur
+                split_by_duration_enabled, split_by_duration_max_dur,
+                merge_by_gap_enabled, merge_by_gap_min_gap, merge_by_gap_max_words,
+                merge_by_punctuation_enabled, merge_by_punctuation_string,
+                merge_all_segments_enabled,
+                fill_gaps_enabled, fill_gaps_file_input, fill_gaps_min_gap
             )
             
             if autorun and tts_input_file_val:
@@ -1368,7 +1425,11 @@ def create_gradio_ui():
                 remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
                 split_by_gap_enabled, split_by_gap_value,
                 split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
-                split_by_duration_enabled, split_by_duration_max_dur
+                split_by_duration_enabled, split_by_duration_max_dur,
+                merge_by_gap_enabled, merge_by_gap_min_gap, merge_by_gap_max_words,
+                merge_by_punctuation_enabled, merge_by_punctuation_string,
+                merge_all_segments_enabled,
+                fill_gaps_enabled, fill_gaps_file_input, fill_gaps_min_gap
             ],
             outputs=[whisper_output_text, whisper_file_preview, whisper_output_files, tts_input_file, tts_output_audio, tts_status_textbox]
         ).then(fn=lambda file: gr.update(selected=1) if file else gr.update(), inputs=tts_input_file, outputs=tabs)
@@ -1437,4 +1498,4 @@ if __name__ == "__main__":
     print("\n✅ Gradio UI created. Launching Web UI...")
     print("➡️ Access the UI by opening the 'Running on local URL' link below in your browser.")
     
-    app.launch(share=True)
+    app.launch()
