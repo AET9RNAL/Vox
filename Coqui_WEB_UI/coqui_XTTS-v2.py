@@ -16,6 +16,8 @@ import whisper
 import json
 import shutil
 import traceback
+import sys
+from TTS.utils.manage import ModelManager
 
 # ✨ Import the necessary config classes for PyTorch's safelist
 from TTS.tts.configs.xtts_config import XttsConfig
@@ -62,12 +64,56 @@ SUPPORTED_LANGUAGES = [
 ]
 
 # ========================================================================================
+# --- System Prerequisite Check ---
+# ========================================================================================
+def check_ffmpeg():
+    """Checks if FFmpeg is installed and in the system's PATH."""
+    if shutil.which("ffmpeg"):
+        print("✅ FFmpeg found.")
+        return True
+    else:
+        print("❌ FFmpeg not found.")
+        print("This application requires FFmpeg for audio processing.")
+        print("Please install it and ensure it's in your system's PATH.")
+        print("Installation instructions:")
+        print("  - Windows: Download from https://ffmpeg.org/download.html (and add to PATH)")
+        print("  - MacOS (via Homebrew): brew install ffmpeg")
+        print("  - Linux (Debian/Ubuntu): sudo apt update && sudo apt install ffmpeg")
+        return False
+
+# ========================================================================================
 # --- Library and Config Functions ---
 # ========================================================================================
 os.makedirs(VOICE_LIBRARY_PATH, exist_ok=True)
 os.makedirs(TTS_CONFIG_LIBRARY_PATH, exist_ok=True)
 os.makedirs(WHISPER_CONFIG_LIBRARY_PATH, exist_ok=True)
 
+def clear_tts_cache():
+    """Clears the Coqui TTS model cache to force a re-download."""
+    global tts_model
+    try:
+        # This is a robust way to find the cache path used by the TTS library
+        # It avoids hardcoding paths and should work across different OSes
+        manager = ModelManager()
+        # This will trigger the download of a small file to find the root cache path
+        manager.download_model("tts_models/en/ljspeech/tacotron2-DDC")
+        
+        # The root path is usually ~/.local/share/tts on Linux/Mac and C:\Users\user\AppData\Local\tts on Windows
+        cache_path = os.path.join(os.path.expanduser("~"), ".local", "share", "tts")
+        if sys.platform == "win32":
+            cache_path = os.path.join(os.getenv("LOCALAPPDATA"), "tts")
+
+        if os.path.exists(cache_path):
+            print(f"🚮 Clearing TTS model cache at: {cache_path}")
+            shutil.rmtree(cache_path)
+            tts_model = None # Unload the model from memory to force a reload
+            return f"✅ TTS model cache cleared successfully. The model will be re-downloaded on next use."
+        else:
+            return "ℹ️ TTS model cache directory not found (it may have already been cleared)."
+    except Exception as e:
+        # Fallback error message if the above fails
+        traceback.print_exc()
+        return f"❌ Error clearing TTS cache: {e}. Please check the console for details."
 
 def get_library_voices():
     if not os.path.exists(VOICE_LIBRARY_PATH): return []
@@ -398,6 +444,8 @@ def create_gradio_ui():
             with gr.Row():
                 tts_device = gr.Radio(label="TTS Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
                 whisper_device = gr.Radio(label="Whisper Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
+                clear_cache_button = gr.Button("Clear TTS Model Cache", variant="stop")
+                cache_status = gr.Textbox(label="Cache Status", interactive=False)
         
         with gr.Tabs() as tabs:
             with gr.Tab("Whisper Transcription", id=0):
@@ -414,7 +462,7 @@ def create_gradio_ui():
                             whisper_config_save_status = gr.Textbox(label="Status", interactive=False)
 
                         gr.Markdown("## 1. Upload Audio")
-                        whisper_audio_input = gr.Audio(label="Input Audio", type="filepath")
+                        whisper_audio_input = gr.File(label="Input Audio", file_types=["audio"])
                         gr.Markdown("## 2. Configure Transcription")
                         whisper_model_size = gr.Dropdown(label="Whisper Model", choices=["tiny", "base", "small", "medium", "large", "turbo"], value="base")
                         whisper_language = gr.Textbox(label="Language (optional)", info="e.g., 'en', 'es'. Leave blank to auto-detect.")
@@ -494,6 +542,8 @@ def create_gradio_ui():
         
         # --- Event Handling ---
         
+        clear_cache_button.click(fn=clear_tts_cache, outputs=cache_status)
+
         def handle_whisper_model_change(model_choice):
             if model_choice == "turbo":
                 info_text = "⚠️ **Note:** The `turbo` model does not support translation."
@@ -585,6 +635,11 @@ def create_gradio_ui():
     return demo
 
 if __name__ == "__main__":
+    if not check_ffmpeg():
+        # If FFmpeg is not found, we should not proceed to launch the UI
+        # as core functionalities will fail.
+        sys.exit(1) # Exit the script with an error code.
+
     app = create_gradio_ui()
     
     print("\n✅ Gradio UI created. Launching Web UI...")
