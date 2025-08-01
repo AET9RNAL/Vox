@@ -141,6 +141,16 @@ def load_tts_config(config_name):
         print(f"Error loading TTS config {config_name}: {e}")
         return [gr.update()]*7
 
+def delete_tts_config(config_name):
+    if not config_name: return "ℹ️ No config selected to delete."
+    config_path = os.path.join(TTS_CONFIG_LIBRARY_PATH, f"{config_name}.json")
+    if not os.path.exists(config_path): return f"❌ Error: Config '{config_name}' not found."
+    try:
+        os.remove(config_path)
+        return f"✅ Config '{config_name}' deleted successfully."
+    except Exception as e:
+        return f"❌ Error deleting config: {e}"
+
 def save_whisper_config(config_name, model_size, language, task, output_action, autorun, tts_config):
     if not config_name or not config_name.strip():
         return "❌ Error: Please enter a name for the configuration."
@@ -172,6 +182,16 @@ def load_whisper_config(config_name):
     except Exception as e:
         print(f"Error loading Whisper config {config_name}: {e}")
         return [gr.update()]*6
+
+def delete_whisper_config(config_name):
+    if not config_name: return "ℹ️ No config selected to delete."
+    config_path = os.path.join(WHISPER_CONFIG_LIBRARY_PATH, f"{config_name}.json")
+    if not os.path.exists(config_path): return f"❌ Error: Config '{config_name}' not found."
+    try:
+        os.remove(config_path)
+        return f"✅ Config '{config_name}' deleted successfully."
+    except Exception as e:
+        return f"❌ Error deleting config: {e}"
 
 # ========================================================================================
 # --- Model Loading Functions ---
@@ -387,8 +407,10 @@ def create_gradio_ui():
                         with gr.Accordion("Configuration Management", open=False):
                             whisper_config_name = gr.Textbox(label="Config Name", placeholder="Enter a name to save current settings...")
                             whisper_save_config_btn = gr.Button("Save Config")
-                            whisper_load_config_dd = gr.Dropdown(label="Load Config", choices=get_whisper_config_files())
-                            whisper_load_config_btn = gr.Button("Load Selected Config")
+                            with gr.Row():
+                                whisper_load_config_dd = gr.Dropdown(label="Load Config", choices=get_whisper_config_files(), scale=3)
+                                whisper_load_config_btn = gr.Button("Load", scale=1)
+                                whisper_delete_config_btn = gr.Button("Delete", variant="stop", scale=1)
                             whisper_refresh_configs_btn_main = gr.Button("Refresh Configs")
                             whisper_config_save_status = gr.Textbox(label="Status", interactive=False)
 
@@ -423,8 +445,10 @@ def create_gradio_ui():
                         with gr.Accordion("Configuration Management", open=False):
                             tts_config_name = gr.Textbox(label="Config Name", placeholder="Enter a name to save current settings...")
                             tts_save_config_btn = gr.Button("Save Config")
-                            tts_load_config_dd = gr.Dropdown(label="Load Config", choices=get_tts_config_files())
-                            tts_load_config_btn = gr.Button("Load Selected Config")
+                            with gr.Row():
+                                tts_load_config_dd = gr.Dropdown(label="Load Config", choices=get_tts_config_files(), scale=3)
+                                tts_load_config_btn = gr.Button("Load", scale=1)
+                                tts_delete_config_btn = gr.Button("Delete", variant="stop", scale=1)
                             tts_refresh_configs_btn = gr.Button("Refresh Configs")
                             tts_config_save_status = gr.Textbox(label="Status", interactive=False)
 
@@ -468,7 +492,6 @@ def create_gradio_ui():
         
         # --- Event Handling ---
         
-        # Whisper Tab
         def handle_whisper_model_change(model_choice):
             if model_choice == "turbo":
                 info_text = "⚠️ **Note:** The `turbo` model does not support translation."
@@ -480,14 +503,12 @@ def create_gradio_ui():
             return gr.update(visible="Pipeline" in action)
         whisper_output_action.change(fn=handle_output_action_change, inputs=whisper_output_action, outputs=whisper_pipeline_group)
 
-        # TTS Tab
         def update_tts_voice_mode(mode): return { tts_clone_voice_group: gr.update(visible=mode == 'Clone'), tts_stock_voice_group: gr.update(visible=mode == 'Stock') }
         tts_voice_mode.change(fn=update_tts_voice_mode, inputs=tts_voice_mode, outputs=[tts_clone_voice_group, tts_stock_voice_group])
         
         def update_clone_source(source): return { tts_upload_group: gr.update(visible=source == 'Upload New Sample'), tts_library_group: gr.update(visible=source == 'Use from Library') }
         tts_clone_source.change(fn=update_clone_source, inputs=tts_clone_source, outputs=[tts_upload_group, tts_library_group])
 
-        # Voice Library Tab
         def refresh_all_voice_lists():
             voices = get_library_voices()
             return gr.update(choices=voices), gr.update(value="\n".join(voices))
@@ -495,23 +516,21 @@ def create_gradio_ui():
         lib_refresh_btn.click(fn=refresh_all_voice_lists, outputs=[tts_library_voice, lib_voice_list])
         refresh_library_btn_tts.click(fn=refresh_all_voice_lists, outputs=[tts_library_voice, lib_voice_list])
 
-        # Config Management
         def refresh_all_config_lists():
-            tts_configs = get_tts_config_files()
-            whisper_configs = get_whisper_config_files()
+            tts_configs, whisper_configs = get_tts_config_files(), get_whisper_config_files()
             return gr.update(choices=tts_configs), gr.update(choices=tts_configs), gr.update(choices=whisper_configs)
         
         tts_save_config_btn.click(fn=save_tts_config, inputs=[tts_config_name, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_srt_timing_mode], outputs=tts_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         tts_load_config_btn.click(fn=load_tts_config, inputs=tts_load_config_dd, outputs=[tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_srt_timing_mode])
+        tts_delete_config_btn.click(fn=delete_tts_config, inputs=tts_load_config_dd, outputs=tts_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         tts_refresh_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         
         whisper_save_config_btn.click(fn=save_whisper_config, inputs=[whisper_config_name, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_autorun_tts, whisper_tts_config], outputs=whisper_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         whisper_load_config_btn.click(fn=load_whisper_config, inputs=whisper_load_config_dd, outputs=[whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_autorun_tts, whisper_tts_config])
+        whisper_delete_config_btn.click(fn=delete_whisper_config, inputs=whisper_load_config_dd, outputs=whisper_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         whisper_refresh_configs_btn_main.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         whisper_refresh_tts_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
 
-
-        # --- Main Pipeline Logic ---
         def handle_transcription_and_pipeline(
             audio_file_path, model_size, language, task, output_action, whisper_device_value,
             autorun, tts_config_name, tts_device_value, progress=gr.Progress(track_tqdm=True)
@@ -540,15 +559,16 @@ def create_gradio_ui():
 
         # --- Button Click Handlers ---
         
-        # TTS Generate
         tts_click_event = tts_generate_btn.click(
             fn=run_tts_generation,
-            inputs=[tts_input_file, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_srt_timing_mode, tts_device],
+            inputs=[
+                tts_input_file, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice,
+                tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_srt_timing_mode, tts_device
+            ],
             outputs=[tts_output_audio, tts_status_textbox]
         )
         tts_terminate_btn.click(fn=None, cancels=[tts_click_event])
 
-        # Whisper Transcribe
         whisper_click_event = transcribe_btn.click(
             fn=handle_transcription_and_pipeline,
             inputs=[whisper_audio_input, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_device, whisper_autorun_tts, whisper_tts_config, tts_device],
