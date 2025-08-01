@@ -360,7 +360,6 @@ def load_tts_model(device):
 def load_whisper_model(model_size, device, engine):
     global whisper_model, stable_whisper_model, current_whisper_device, current_whisper_model_size, current_whisper_engine
     
-    # Check if the requested model and engine are already loaded
     if current_whisper_model_size == model_size and current_whisper_device == device and current_whisper_engine == engine:
         return "Whisper model is already loaded."
 
@@ -455,6 +454,16 @@ def safe_load_audio(audio_file_path):
         return audio
     except Exception as e:
         raise RuntimeError(f"Failed to load audio file: {e}")
+
+# NEW: Custom function for find and replace
+def find_and_replace(result, find_word, replace_word):
+    if not find_word or replace_word is None:
+        return result
+    for segment in result.segments:
+        for word in segment.words:
+            if word.word.strip().lower() == find_word.strip().lower():
+                word.word = f" {replace_word} "
+    return result
 
 # ========================================================================================
 # --- Gradio Processing Functions ---
@@ -608,7 +617,7 @@ def run_whisper_transcription(
                 # Find and Replace
                 if find_replace_enabled and find_word and replace_word is not None:
                     progress(0.96, desc="Applying find and replace...")
-                    result.replace(find_word, replace_word, case_sensitive=False)
+                    result = find_and_replace(result, find_word, replace_word)
             
             # Extract text and segments after all post-processing
             full_text = result.text
@@ -690,7 +699,6 @@ def create_gradio_ui():
                         gr.Markdown("## 3. Choose Output Action")
                         whisper_output_action = gr.Radio(label="Action", choices=["Display Only", "Save All Formats (.txt, .srt, .vtt, .json)", "Pipeline .txt to TTS", "Pipeline .srt to TTS"], value="Display Only")
                         
-                        # NEW: Stable-TS Advanced Options Accordion
                         with gr.Accordion("Stable-TS Advanced Options", open=False, visible=False) as stable_ts_options:
                             gr.Markdown("### Silence Suppression & VAD")
                             suppress_silence = gr.Checkbox(label="Suppress Silence", value=True, info="Adjusts timestamps based on silence detection.")
