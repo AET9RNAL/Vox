@@ -24,6 +24,10 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import XttsAudioConfig, XttsArgs
 from TTS.config.shared_configs import BaseDatasetConfig
 
+# NEW: Import stable-ts and its audio module
+import stable_whisper
+import stable_whisper.audio
+
 # ========================================================================================
 # --- Global Model and Configuration ---
 # ========================================================================================
@@ -38,9 +42,11 @@ WHISPER_CONFIG_LIBRARY_PATH = "whisper_configs"
 # Global variables to hold the models
 tts_model = None
 whisper_model = None
+stable_whisper_model = None # NEW: Global variable for stable-ts model
 current_tts_device = None
 current_whisper_device = None
 current_whisper_model_size = None
+current_whisper_engine = None # NEW: Keep track of the current engine
 
 # --- Device Auto-Detection ---
 def get_available_devices():
@@ -197,7 +203,13 @@ def delete_tts_config(config_name):
     except Exception as e:
         return f"❌ Error deleting config: {e}"
 
-def save_whisper_config(config_name, model_size, language, task, output_action, autorun, tts_config):
+def save_whisper_config(
+    config_name, model_size, language, task, output_action, whisper_engine, autorun, tts_config,
+    regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
+    min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
+    temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
+    suppress_ts_tokens, time_scale
+):
     if not config_name or not config_name.strip():
         return "❌ Error: Please enter a name for the configuration."
     sanitized_name = re.sub(r'[\\/*?:"<>|]', "", config_name).strip().replace(" ", "_")
@@ -206,7 +218,24 @@ def save_whisper_config(config_name, model_size, language, task, output_action, 
     config_path = os.path.join(WHISPER_CONFIG_LIBRARY_PATH, f"{sanitized_name}.json")
     config_data = {
         "model_size": model_size, "language": language, "task": task,
-        "output_action": output_action, "autorun": autorun, "tts_config": tts_config
+        "output_action": output_action, "autorun": autorun, "tts_config": tts_config,
+        "whisper_engine": whisper_engine, # NEW: Save the engine choice
+        "regroup_enabled": regroup_enabled,
+        "regroup_string": regroup_string,
+        "suppress_silence": suppress_silence,
+        "vad_enabled": vad_enabled,
+        "vad_threshold": vad_threshold,
+        "min_word_dur": min_word_dur,
+        "no_speech_threshold": no_speech_threshold,
+        "logprob_threshold": logprob_threshold,
+        "compression_ratio_threshold": compression_ratio_threshold,
+        "temperature": temperature,
+        "condition_on_previous_text": condition_on_previous_text,
+        "initial_prompt": initial_prompt,
+        "demucs_enabled": demucs_enabled,
+        "only_voice_freq": only_voice_freq,
+        "suppress_ts_tokens": suppress_ts_tokens,
+        "time_scale": time_scale
     }
     try:
         with open(config_path, 'w', encoding='utf-8') as f: json.dump(config_data, f, indent=4)
@@ -215,19 +244,45 @@ def save_whisper_config(config_name, model_size, language, task, output_action, 
         return f"❌ Error saving config: {e}"
 
 def load_whisper_config(config_name):
-    if not config_name: return [gr.update()]*6
+    if not config_name: return [gr.update()]*20 # Updated number of outputs
     config_path = os.path.join(WHISPER_CONFIG_LIBRARY_PATH, f"{config_name}.json")
-    if not os.path.exists(config_path): return [gr.update()]*6
+    if not os.path.exists(config_path): return [gr.update()]*20 # Updated number of outputs
     try:
         with open(config_path, 'r', encoding='utf-8') as f: config_data = json.load(f)
-        return [
-            gr.update(value=config_data.get("model_size")), gr.update(value=config_data.get("language")),
-            gr.update(value=config_data.get("task")), gr.update(value=config_data.get("output_action")),
-            gr.update(value=config_data.get("autorun")), gr.update(value=config_data.get("tts_config"))
+        
+        updates = [
+            gr.update(value=config_data.get("model_size")),
+            gr.update(value=config_data.get("language")),
+            gr.update(value=config_data.get("task")),
+            gr.update(value=config_data.get("output_action")),
+            gr.update(value=config_data.get("whisper_engine")), # NEW: Load engine choice
+            gr.update(value=config_data.get("autorun")),
+            gr.update(value=config_data.get("tts_config")),
+            gr.update(value=config_data.get("regroup_enabled")),
+            gr.update(value=config_data.get("regroup_string")),
+            gr.update(value=config_data.get("suppress_silence")),
+            gr.update(value=config_data.get("vad_enabled")),
+            gr.update(value=config_data.get("vad_threshold")),
+            gr.update(value=config_data.get("min_word_dur")),
+            gr.update(value=config_data.get("no_speech_threshold")),
+            gr.update(value=config_data.get("logprob_threshold")),
+            gr.update(value=config_data.get("compression_ratio_threshold")),
+            gr.update(value=config_data.get("temperature")),
+            gr.update(value=config_data.get("condition_on_previous_text")),
+            gr.update(value=config_data.get("initial_prompt")),
+            gr.update(value=config_data.get("demucs_enabled")),
+            gr.update(value=config_data.get("only_voice_freq")),
+            gr.update(value=config_data.get("suppress_ts_tokens")),
+            gr.update(value=config_data.get("time_scale"))
         ]
+        # Also need to handle visibility of the advanced options
+        stable_ts_options_visible = config_data.get("whisper_engine") == "Stable-TS"
+        updates.append(gr.update(visible=stable_ts_options_visible))
+        
+        return updates
     except Exception as e:
         print(f"Error loading Whisper config {config_name}: {e}")
-        return [gr.update()]*6
+        return [gr.update()]*20 # Updated number of outputs
 
 def delete_whisper_config(config_name):
     if not config_name: return "ℹ️ No config selected to delete."
@@ -255,18 +310,32 @@ def load_tts_model(device):
             raise RuntimeError(f"Failed to load TTS model: {e}")
     return "TTS model is ready."
 
-def load_whisper_model(model_size, device):
-    global whisper_model, current_whisper_device, current_whisper_model_size
-    if whisper_model is not None and current_whisper_model_size == model_size and current_whisper_device == device:
+def load_whisper_model(model_size, device, engine):
+    global whisper_model, stable_whisper_model, current_whisper_device, current_whisper_model_size, current_whisper_engine
+    
+    # Check if the requested model and engine are already loaded
+    if current_whisper_model_size == model_size and current_whisper_device == device and current_whisper_engine == engine:
         return "Whisper model is already loaded."
-    print(f"⏳ Loading Whisper model '{model_size}' to device: {device}...")
+
+    print(f"⏳ Loading {engine} model '{model_size}' to device: {device}...")
     try:
-        whisper_model = whisper.load_model(model_size, device=device)
+        if engine == "OpenAI Whisper":
+            # Unload stable-ts model if it's loaded
+            if stable_whisper_model is not None:
+                stable_whisper_model = None
+            whisper_model = whisper.load_model(model_size, device=device)
+        elif engine == "Stable-TS":
+            # Unload openai-whisper model if it's loaded
+            if whisper_model is not None:
+                whisper_model = None
+            stable_whisper_model = stable_whisper.load_model(model_size, device=device)
+        
         current_whisper_device = device
         current_whisper_model_size = model_size
-        print(f"✅ Whisper Model loaded successfully on {device}.")
+        current_whisper_engine = engine
+        print(f"✅ {engine} Model loaded successfully on {device}.")
     except Exception as e:
-        raise RuntimeError(f"Failed to load Whisper model: {e}")
+        raise RuntimeError(f"Failed to load {engine} model: {e}")
     return "Whisper model is ready."
 
 # ========================================================================================
@@ -335,6 +404,14 @@ def create_voiceover(segments, output_path, tts_instance, speaker_wav, language,
     
     sf.write(output_path, final_audio, sample_rate)
     return output_path
+    
+def safe_load_audio(audio_file_path):
+    """Loads an audio file into a NumPy array to prevent file path issues."""
+    try:
+        audio = stable_whisper.audio.load_audio(audio_file_path)
+        return audio
+    except Exception as e:
+        raise RuntimeError(f"Failed to load audio file: {e}")
 
 # ========================================================================================
 # --- Gradio Processing Functions ---
@@ -391,27 +468,70 @@ def run_tts_generation(
         return None, f"❌ An unexpected error occurred: {e}"
 
 def run_whisper_transcription(
-    audio_file_path, model_size, language, task, output_action, whisper_device, progress=gr.Progress(track_tqdm=True)
+    audio_file_path, model_size, language, task, output_action, whisper_device, whisper_engine,
+    # New Stable-TS parameters
+    regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
+    min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
+    temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
+    suppress_ts_tokens, time_scale, progress=gr.Progress(track_tqdm=True)
 ):
     if audio_file_path is None: return "❌ Error: Please upload an audio file.", "", [], None
     try:
-        progress(0, desc="Loading Whisper Model...")
-        load_whisper_model(model_size, whisper_device)
+        progress(0, desc=f"Loading {whisper_engine} Model...")
+        load_whisper_model(model_size, whisper_device, whisper_engine)
         lang = language if language and language.strip() else None
-        progress(0.2, desc=f"Starting {task}...")
-        result = whisper_model.transcribe(audio_file_path, language=lang, task=task, verbose=True)
-        full_text = result['text']
         
+        # New: Load audio into a NumPy array to avoid FFmpeg path issues for both engines
+        progress(0.1, desc="Loading audio file...")
+        audio_array = safe_load_audio(audio_file_path)
+
+        progress(0.2, desc=f"Starting {whisper_engine} {task}...")
+        
+        if whisper_engine == "OpenAI Whisper":
+            # Pass the in-memory audio array instead of the file path
+            result = whisper_model.transcribe(audio_array, language=lang, task=task, verbose=True)
+            full_text = result['text']
+            segments = result['segments']
+        elif whisper_engine == "Stable-TS":
+            # Set regroup parameter based on user input
+            regroup_param = regroup_string if regroup_string.strip() else regroup_enabled
+            
+            # Pass all the new parameters to stable-ts transcribe function
+            result = stable_whisper_model.transcribe(
+                audio_array,
+                language=lang,
+                task=task,
+                verbose=True, # Always set verbose to True for console output
+                regroup=regroup_param,
+                suppress_silence=suppress_silence,
+                vad=vad_enabled,
+                vad_threshold=vad_threshold,
+                min_word_dur=min_word_dur,
+                no_speech_threshold=no_speech_threshold,
+                logprob_threshold=logprob_threshold,
+                compression_ratio_threshold=compression_ratio_threshold,
+                temperature=temperature,
+                condition_on_previous_text=condition_on_previous_text,
+                initial_prompt=initial_prompt if initial_prompt.strip() else None,
+                demucs=demucs_enabled,
+                only_voice_freq=only_voice_freq,
+                suppress_ts_tokens=suppress_ts_tokens,
+                time_scale=time_scale
+            )
+            full_text = result.text
+            # stable-ts segments have a slightly different structure, so we process them
+            segments = [{"start": seg.start, "end": seg.end, "text": seg.text} for seg in result.segments]
+
         if output_action == "Display Only": return full_text, "", [], None
 
         output_dir, base_name, timestamp = "whisper_outputs", os.path.splitext(os.path.basename(audio_file_path))[0], datetime.now().strftime("%Y%m%d_%H%M%S")
         os.makedirs(output_dir, exist_ok=True)
         
         txt_content = full_text
-        srt_segments = [srt.Subtitle(i+1, timedelta(seconds=seg['start']), timedelta(seconds=seg['end']), seg['text'].strip()) for i, seg in enumerate(result['segments'])]
+        srt_segments = [srt.Subtitle(i+1, timedelta(seconds=seg['start']), timedelta(seconds=seg['end']), seg['text'].strip()) for i, seg in enumerate(segments)]
         srt_content = srt.compose(srt_segments)
-        vtt_content = "WEBVTT\n\n" + "\n\n".join(f"{timedelta(seconds=seg['start'])} --> {timedelta(seconds=seg['end'])}\n{seg['text'].strip()}" for seg in result['segments'])
-        json_content = json.dumps(result, indent=2, ensure_ascii=False)
+        vtt_content = "WEBVTT\n\n" + "\n\n".join(f"{timedelta(seconds=seg['start'])} --> {timedelta(seconds=seg['end'])}\n{seg['text'].strip()}" for seg in segments)
+        json_content = json.dumps({"text": full_text, "segments": segments}, indent=2, ensure_ascii=False)
 
         if output_action == "Save All Formats (.txt, .srt, .vtt, .json)":
             file_paths = []
@@ -464,12 +584,55 @@ def create_gradio_ui():
                         gr.Markdown("## 1. Upload Audio")
                         whisper_audio_input = gr.File(label="Input Audio", file_types=["audio"])
                         gr.Markdown("## 2. Configure Transcription")
+                        
+                        # NEW: Transcription Engine Switch
+                        whisper_engine = gr.Radio(
+                            label="Transcription Engine",
+                            choices=["OpenAI Whisper", "Stable-TS"],
+                            value="OpenAI Whisper",
+                            info="Stable-TS provides more natural, sentence-based segmentation."
+                        )
+                        
                         whisper_model_size = gr.Dropdown(label="Whisper Model", choices=["tiny", "base", "small", "medium", "large", "turbo"], value="base")
                         whisper_language = gr.Textbox(label="Language (optional)", info="e.g., 'en', 'es'. Leave blank to auto-detect.")
                         whisper_task = gr.Radio(label="Task", choices=["transcribe", "translate"], value="transcribe")
                         gr.Markdown("## 3. Choose Output Action")
                         whisper_output_action = gr.Radio(label="Action", choices=["Display Only", "Save All Formats (.txt, .srt, .vtt, .json)", "Pipeline .txt to TTS", "Pipeline .srt to TTS"], value="Display Only")
                         
+                        # NEW: Stable-TS Advanced Options Accordion
+                        with gr.Accordion("Stable-TS Advanced Options", open=False, visible=False) as stable_ts_options:
+                            gr.Markdown("### Silence Suppression & VAD")
+                            suppress_silence = gr.Checkbox(label="Suppress Silence", value=True, info="Adjusts timestamps based on silence detection.")
+                            with gr.Row():
+                                vad_enabled = gr.Checkbox(label="Use Silero VAD", value=False, info="Use a more accurate Voice Activity Detection model for silence detection.")
+                                vad_threshold = gr.Slider(label="VAD Threshold", minimum=0.0, maximum=1.0, step=0.05, value=0.35, info="Lower threshold reduces false positives for silence detection.")
+                            with gr.Row():
+                                min_word_dur = gr.Slider(label="Min Word Duration (s)", minimum=0.0, maximum=1.0, step=0.05, value=0.1, info="Shortest duration a word can be after adjustments.")
+                                nonspeech_error = gr.Slider(label="Non-speech Error", minimum=0.0, maximum=1.0, step=0.05, value=0.3, info="Relative error for non-speech sections.")
+                            
+                            gr.Markdown("### Segmentation & Grouping")
+                            with gr.Row():
+                                regroup_enabled = gr.Checkbox(label="Enable Regrouping", value=True, info="Enables the default regrouping algorithm for more natural sentences.")
+                                regroup_string = gr.Textbox(label="Custom Regrouping Algorithm", placeholder="e.g., cm_sg=.5_mg=.3+3", info="Enter a custom string to override the default regrouping.")
+
+                            gr.Markdown("### Confidence & Decoding")
+                            with gr.Row():
+                                no_speech_threshold = gr.Slider(label="No Speech Threshold", minimum=0.0, maximum=1.0, step=0.05, value=0.6, info="If no-speech probability is above this value, a segment might be considered silent.")
+                                logprob_threshold = gr.Slider(label="Log Probability Threshold", minimum=-10.0, maximum=0.0, step=0.5, value=-1.0, info="If average log probability is below this, transcription might be treated as failed.")
+                            with gr.Row():
+                                compression_ratio_threshold = gr.Slider(label="Compression Ratio Threshold", minimum=0.0, maximum=10.0, step=0.5, value=2.4, info="If gzip compression ratio is above this, transcription might be treated as failed.")
+                                temperature = gr.Slider(label="Temperature", minimum=0.0, maximum=1.0, step=0.1, value=0.0, info="Temperature for sampling. Higher values are more random but can be less accurate.")
+                            
+                            condition_on_previous_text = gr.Checkbox(label="Condition on Previous Text", value=True, info="Provides previous output as a prompt for the next window.")
+                            initial_prompt = gr.Textbox(label="Initial Prompt", placeholder="e.g., 'Hello, my name is John.'", info="Text to provide as a prompt for the first window.")
+                            
+                            gr.Markdown("### Other Options")
+                            with gr.Row():
+                                only_voice_freq = gr.Checkbox(label="Only Use Voice Frequencies", value=False, info="Filters audio to use only frequencies where most human speech lies (200-5000Hz).")
+                                suppress_ts_tokens = gr.Checkbox(label="Suppress Timestamp Tokens", value=False, info="Reduces hallucinations but can ignore disfluencies and repetitions.")
+                                demucs_enabled = gr.Checkbox(label="Isolate Vocals (Demucs)", value=False, info="Pre-processes audio with Demucs to isolate vocals. Requires Demucs installation.")
+                            time_scale = gr.Slider(label="Time Scale", minimum=0.5, maximum=2.0, step=0.1, value=1.0, info="Factor for scaling audio duration. >1 slows down audio, increasing effective resolution.")
+
                         with gr.Group(visible=False) as whisper_pipeline_group:
                             whisper_autorun_tts = gr.Checkbox(label="Auto-run TTS after pipeline", value=False)
                             whisper_tts_config = gr.Dropdown(label="TTS Config to use", choices=get_tts_config_files())
@@ -550,6 +713,12 @@ def create_gradio_ui():
                 return gr.update(value="transcribe", interactive=False), gr.update(value=info_text, visible=True)
             return gr.update(interactive=True), gr.update(visible=False)
         whisper_model_size.change(fn=handle_whisper_model_change, inputs=whisper_model_size, outputs=[whisper_task, whisper_info_box])
+        
+        # New function to handle the switch between Whisper engines and show/hide options
+        def handle_whisper_engine_change(engine):
+            stable_options_visibility = engine == "Stable-TS"
+            return gr.update(visible=stable_options_visibility)
+        whisper_engine.change(fn=handle_whisper_engine_change, inputs=whisper_engine, outputs=stable_ts_options)
 
         def handle_output_action_change(action):
             return gr.update(visible="Pipeline" in action)
@@ -581,18 +750,55 @@ def create_gradio_ui():
         tts_delete_config_btn.click(fn=delete_tts_config, inputs=tts_load_config_dd, outputs=tts_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         tts_refresh_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         
-        whisper_save_config_btn.click(fn=save_whisper_config, inputs=[whisper_config_name, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_autorun_tts, whisper_tts_config], outputs=whisper_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
-        whisper_load_config_btn.click(fn=load_whisper_config, inputs=whisper_load_config_dd, outputs=[whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_autorun_tts, whisper_tts_config])
+        whisper_save_config_btn.click(
+            fn=save_whisper_config, 
+            inputs=[
+                whisper_config_name, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_engine, whisper_autorun_tts, whisper_tts_config,
+                regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
+                min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
+                temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
+                suppress_ts_tokens, time_scale
+            ], 
+            outputs=whisper_config_save_status
+        ).then(
+            fn=refresh_all_config_lists, 
+            outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd]
+        )
+        
+        whisper_load_config_btn.click(
+            fn=load_whisper_config, 
+            inputs=whisper_load_config_dd, 
+            outputs=[
+                whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_engine, whisper_autorun_tts, whisper_tts_config,
+                regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
+                min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
+                temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
+                suppress_ts_tokens, time_scale, stable_ts_options
+            ]
+        )
+        
         whisper_delete_config_btn.click(fn=delete_whisper_config, inputs=whisper_load_config_dd, outputs=whisper_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         whisper_refresh_configs_btn_main.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         whisper_refresh_tts_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
 
         def handle_transcription_and_pipeline(
-            audio_file_path, model_size, language, task, output_action, whisper_device_value,
-            autorun, tts_config_name, tts_device_value, progress=gr.Progress(track_tqdm=True)
+            audio_file_path, model_size, language, task, output_action, whisper_device_value, whisper_engine_value,
+            autorun, tts_config_name, tts_device_value,
+            # New Stable-TS parameters
+            regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
+            min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
+            temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
+            suppress_ts_tokens, time_scale,
+            progress=gr.Progress(track_tqdm=True)
         ):
             text_out, preview_out, files_out, tts_input_file_val = run_whisper_transcription(
-                audio_file_path, model_size, language, task, output_action, whisper_device_value, progress
+                audio_file_path, model_size, language, task, output_action, whisper_device_value, whisper_engine_value,
+                # New Stable-TS parameters passed here
+                regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
+                min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
+                temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
+                suppress_ts_tokens, time_scale,
+                progress
             )
             
             if autorun and tts_input_file_val:
@@ -627,7 +833,15 @@ def create_gradio_ui():
 
         whisper_click_event = transcribe_btn.click(
             fn=handle_transcription_and_pipeline,
-            inputs=[whisper_audio_input, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_device, whisper_autorun_tts, whisper_tts_config, tts_device],
+            inputs=[
+                whisper_audio_input, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_device, whisper_engine,
+                whisper_autorun_tts, whisper_tts_config, tts_device,
+                # New Stable-TS options
+                regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
+                min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
+                temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
+                suppress_ts_tokens, time_scale
+            ],
             outputs=[whisper_output_text, whisper_file_preview, whisper_output_files, tts_input_file, tts_output_audio, tts_status_textbox]
         ).then(fn=lambda file: gr.update(selected=1) if file else gr.update(), inputs=tts_input_file, outputs=tabs)
         whisper_terminate_btn.click(fn=None, cancels=[whisper_click_event])
