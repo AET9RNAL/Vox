@@ -30,7 +30,8 @@ MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
 MODEL_NAME_FOR_FILE = "Coqui_XTTSv2"
 SAMPLE_RATE = 24000
 VOICE_LIBRARY_PATH = "voice_library"
-CONFIG_LIBRARY_PATH = "tts_configs"
+TTS_CONFIG_LIBRARY_PATH = "tts_configs"
+WHISPER_CONFIG_LIBRARY_PATH = "whisper_configs"
 
 # Global variables to hold the models
 tts_model = None
@@ -64,15 +65,21 @@ SUPPORTED_LANGUAGES = [
 # --- Library and Config Functions ---
 # ========================================================================================
 os.makedirs(VOICE_LIBRARY_PATH, exist_ok=True)
-os.makedirs(CONFIG_LIBRARY_PATH, exist_ok=True)
+os.makedirs(TTS_CONFIG_LIBRARY_PATH, exist_ok=True)
+os.makedirs(WHISPER_CONFIG_LIBRARY_PATH, exist_ok=True)
+
 
 def get_library_voices():
     if not os.path.exists(VOICE_LIBRARY_PATH): return []
     return [os.path.splitext(f)[0] for f in os.listdir(VOICE_LIBRARY_PATH) if f.endswith(('.wav', '.mp3'))]
 
-def get_config_files():
-    if not os.path.exists(CONFIG_LIBRARY_PATH): return []
-    return [os.path.splitext(f)[0] for f in os.listdir(CONFIG_LIBRARY_PATH) if f.endswith('.json')]
+def get_tts_config_files():
+    if not os.path.exists(TTS_CONFIG_LIBRARY_PATH): return []
+    return [os.path.splitext(f)[0] for f in os.listdir(TTS_CONFIG_LIBRARY_PATH) if f.endswith('.json')]
+
+def get_whisper_config_files():
+    if not os.path.exists(WHISPER_CONFIG_LIBRARY_PATH): return []
+    return [os.path.splitext(f)[0] for f in os.listdir(WHISPER_CONFIG_LIBRARY_PATH) if f.endswith('.json')]
 
 def save_voice_to_library(audio_filepath, voice_name):
     """Saves an uploaded audio file to the voice library."""
@@ -104,49 +111,67 @@ def save_tts_config(config_name, language, voice_mode, clone_source, library_voi
     if not sanitized_name:
         return "❌ Error: Invalid config name."
 
-    config_path = os.path.join(CONFIG_LIBRARY_PATH, f"{sanitized_name}.json")
+    config_path = os.path.join(TTS_CONFIG_LIBRARY_PATH, f"{sanitized_name}.json")
     
     config_data = {
-        "language": language,
-        "voice_mode": voice_mode,
-        "clone_source": clone_source,
-        "library_voice": library_voice,
-        "stock_voice": stock_voice,
-        "output_format": output_format,
+        "language": language, "voice_mode": voice_mode, "clone_source": clone_source,
+        "library_voice": library_voice, "stock_voice": stock_voice, "output_format": output_format,
         "srt_timing_mode": srt_timing_mode
     }
     
     try:
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config_data, f, indent=4)
+        with open(config_path, 'w', encoding='utf-8') as f: json.dump(config_data, f, indent=4)
         return f"✅ Config '{sanitized_name}' saved successfully."
     except Exception as e:
         return f"❌ Error saving config: {e}"
 
 def load_tts_config(config_name):
-    if not config_name:
-        return [gr.update()]*7 # Return updates for all 7 fields
-    
-    config_path = os.path.join(CONFIG_LIBRARY_PATH, f"{config_name}.json")
-    if not os.path.exists(config_path):
-        return [gr.update()]*7
-
+    if not config_name: return [gr.update()]*7
+    config_path = os.path.join(TTS_CONFIG_LIBRARY_PATH, f"{config_name}.json")
+    if not os.path.exists(config_path): return [gr.update()]*7
     try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
-        
+        with open(config_path, 'r', encoding='utf-8') as f: config_data = json.load(f)
         return [
-            gr.update(value=config_data.get("language")),
-            gr.update(value=config_data.get("voice_mode")),
-            gr.update(value=config_data.get("clone_source")),
-            gr.update(value=config_data.get("library_voice")),
-            gr.update(value=config_data.get("stock_voice")),
-            gr.update(value=config_data.get("output_format")),
+            gr.update(value=config_data.get("language")), gr.update(value=config_data.get("voice_mode")),
+            gr.update(value=config_data.get("clone_source")), gr.update(value=config_data.get("library_voice")),
+            gr.update(value=config_data.get("stock_voice")), gr.update(value=config_data.get("output_format")),
             gr.update(value=config_data.get("srt_timing_mode"))
         ]
     except Exception as e:
-        print(f"Error loading config {config_name}: {e}")
+        print(f"Error loading TTS config {config_name}: {e}")
         return [gr.update()]*7
+
+def save_whisper_config(config_name, model_size, language, task, output_action, autorun, tts_config):
+    if not config_name or not config_name.strip():
+        return "❌ Error: Please enter a name for the configuration."
+    sanitized_name = re.sub(r'[\\/*?:"<>|]', "", config_name).strip().replace(" ", "_")
+    if not sanitized_name: return "❌ Error: Invalid config name."
+
+    config_path = os.path.join(WHISPER_CONFIG_LIBRARY_PATH, f"{sanitized_name}.json")
+    config_data = {
+        "model_size": model_size, "language": language, "task": task,
+        "output_action": output_action, "autorun": autorun, "tts_config": tts_config
+    }
+    try:
+        with open(config_path, 'w', encoding='utf-8') as f: json.dump(config_data, f, indent=4)
+        return f"✅ Config '{sanitized_name}' saved successfully."
+    except Exception as e:
+        return f"❌ Error saving config: {e}"
+
+def load_whisper_config(config_name):
+    if not config_name: return [gr.update()]*6
+    config_path = os.path.join(WHISPER_CONFIG_LIBRARY_PATH, f"{config_name}.json")
+    if not os.path.exists(config_path): return [gr.update()]*6
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f: config_data = json.load(f)
+        return [
+            gr.update(value=config_data.get("model_size")), gr.update(value=config_data.get("language")),
+            gr.update(value=config_data.get("task")), gr.update(value=config_data.get("output_action")),
+            gr.update(value=config_data.get("autorun")), gr.update(value=config_data.get("tts_config"))
+        ]
+    except Exception as e:
+        print(f"Error loading Whisper config {config_name}: {e}")
+        return [gr.update()]*6
 
 # ========================================================================================
 # --- Model Loading Functions ---
@@ -179,7 +204,7 @@ def load_whisper_model(model_size, device):
     return "Whisper model is ready."
 
 # ========================================================================================
-# --- Core Logic Functions (unchanged) ---
+# --- Core Logic Functions ---
 # ========================================================================================
 
 def normalize_text(text):
@@ -196,7 +221,7 @@ def parse_text_file(path):
     with open(path, 'r', encoding='utf-8') as f: lines = [line.strip() for line in f if line.strip()]
     return [srt.Subtitle(index=i, start=timedelta(0), end=timedelta(0), content=line) for i, line in enumerate(lines, 1)]
 
-def create_voiceover(segments, output_path, tts_instance, speaker_wav, language, sample_rate, timed_generation=True, strict_timing=False, progress=None):
+def create_voiceover(segments, output_path, tts_instance, speaker_wav, language, sample_rate, timed_generation=True, strict_timing=False, progress=gr.Progress()):
     all_audio_chunks = []
     if timed_generation and strict_timing:
         total_duration_seconds = segments[-1].end.total_seconds() if segments else 0
@@ -206,7 +231,7 @@ def create_voiceover(segments, output_path, tts_instance, speaker_wav, language,
         current_time_seconds = 0.0
 
     for i, sub in enumerate(segments):
-        if progress: progress((i + 1) / len(segments), desc=f"Processing segment {i+1}/{len(segments)}")
+        progress((i + 1) / len(segments), desc=f"TTS: Segment {i+1}/{len(segments)}")
         raw_text = sub.content.strip().replace('\n', ' ')
         if not raw_text: continue
         text_to_speak = normalize_text(raw_text)
@@ -237,14 +262,12 @@ def create_voiceover(segments, output_path, tts_instance, speaker_wav, language,
                 all_audio_chunks.append(audio_chunk)
                 all_audio_chunks.append(np.zeros(int(0.5 * sample_rate), dtype=np.float32))
         except Exception as e:
-            print(f"\n⚠️ Error generating TTS for line {sub.index}: '{raw_text}'. Skipping. Error: {e}")
             raise e
             
     if not timed_generation or (timed_generation and not strict_timing):
         final_audio = np.concatenate(all_audio_chunks) if all_audio_chunks else np.array([], dtype=np.float32)
     
     sf.write(output_path, final_audio, sample_rate)
-    print("✅ Voiceover generation complete!")
     return output_path
 
 # ========================================================================================
@@ -289,19 +312,17 @@ def run_tts_generation(
         output_filename = f"{base_name}_{clone_or_stock_name}_{language}.{output_format}"
         final_output_path = os.path.join(output_dir, output_filename)
         
-        create_voiceover(
+        output_audio = create_voiceover(
             segments=segments, output_path=final_output_path, tts_instance=tts_model,
             speaker_wav=speaker_wav_for_tts, language=language, sample_rate=SAMPLE_RATE,
             timed_generation=is_timed, strict_timing=(srt_timing_mode == "Strict (Cut audio to fit)"),
             progress=progress
         )
         
-        return final_output_path, f"✅ Success! Audio saved to {final_output_path}"
+        return output_audio, f"✅ Success! Audio saved to {final_output_path}"
 
     except Exception as e:
-        print("\n--- DETAILED TTS ERROR ---")
-        traceback.print_exc()
-        print("--------------------------\n")
+        print("\n--- DETAILED TTS ERROR ---"); traceback.print_exc(); print("--------------------------\n")
         return None, f"❌ An unexpected error occurred: {e}"
 
 def run_whisper_transcription(
@@ -343,9 +364,7 @@ def run_whisper_transcription(
             return full_text, content, [pipeline_filepath], pipeline_filepath
 
     except Exception as e:
-        print("\n--- DETAILED WHISPER ERROR ---")
-        traceback.print_exc()
-        print("------------------------------\n")
+        print("\n--- DETAILED WHISPER ERROR ---"); traceback.print_exc(); print("------------------------------\n")
         return f"❌ An unexpected error occurred: {e}", "", [], None
 
 # ========================================================================================
@@ -356,15 +375,23 @@ def create_gradio_ui():
     with gr.Blocks(title="Coqui XTTS & Whisper Pipeline") as demo:
         gr.HTML("""<div style="text-align: center; max-width: 800px; margin: 0 auto;"><h1 style="color: #4CAF50;">Coqui XTTS & Whisper Pipeline</h1><p style="font-size: 1.1em;">A complete toolkit for audio transcription and voiceover generation.</p></div>""")
         
-        with gr.Accordion("⚙️ Global Device Settings", open=False):
+        with gr.Accordion("⚙️ Global Device & Process Settings", open=False):
             with gr.Row():
                 tts_device = gr.Radio(label="TTS Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
                 whisper_device = gr.Radio(label="Whisper Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
-
+        
         with gr.Tabs() as tabs:
             with gr.Tab("Whisper Transcription", id=0):
                 with gr.Row():
                     with gr.Column(scale=1):
+                        with gr.Accordion("Configuration Management", open=False):
+                            whisper_config_name = gr.Textbox(label="Config Name", placeholder="Enter a name to save current settings...")
+                            whisper_save_config_btn = gr.Button("Save Config")
+                            whisper_load_config_dd = gr.Dropdown(label="Load Config", choices=get_whisper_config_files())
+                            whisper_load_config_btn = gr.Button("Load Selected Config")
+                            whisper_refresh_configs_btn_main = gr.Button("Refresh Configs")
+                            whisper_config_save_status = gr.Textbox(label="Status", interactive=False)
+
                         gr.Markdown("## 1. Upload Audio")
                         whisper_audio_input = gr.Audio(label="Input Audio", type="filepath")
                         gr.Markdown("## 2. Configure Transcription")
@@ -376,10 +403,11 @@ def create_gradio_ui():
                         
                         with gr.Group(visible=False) as whisper_pipeline_group:
                             whisper_autorun_tts = gr.Checkbox(label="Auto-run TTS after pipeline", value=False)
-                            whisper_tts_config = gr.Dropdown(label="TTS Config to use", choices=get_config_files())
-                            whisper_refresh_configs_btn = gr.Button("Refresh Configs")
+                            whisper_tts_config = gr.Dropdown(label="TTS Config to use", choices=get_tts_config_files())
+                            whisper_refresh_tts_configs_btn = gr.Button("Refresh TTS Configs")
 
                         transcribe_btn = gr.Button("Transcribe Audio", variant="primary")
+                        whisper_terminate_btn = gr.Button("Terminate", variant="stop", visible=False)
 
                     with gr.Column(scale=2):
                         gr.Markdown("## Transcription Result")
@@ -395,7 +423,7 @@ def create_gradio_ui():
                         with gr.Accordion("Configuration Management", open=False):
                             tts_config_name = gr.Textbox(label="Config Name", placeholder="Enter a name to save current settings...")
                             tts_save_config_btn = gr.Button("Save Config")
-                            tts_load_config_dd = gr.Dropdown(label="Load Config", choices=get_config_files())
+                            tts_load_config_dd = gr.Dropdown(label="Load Config", choices=get_tts_config_files())
                             tts_load_config_btn = gr.Button("Load Selected Config")
                             tts_refresh_configs_btn = gr.Button("Refresh Configs")
                             tts_config_save_status = gr.Textbox(label="Status", interactive=False)
@@ -416,7 +444,9 @@ def create_gradio_ui():
                         tts_language = gr.Dropdown(label="Language", choices=SUPPORTED_LANGUAGES, value="en")
                         tts_output_format = gr.Radio(label="Output Format", choices=['wav', 'mp3'], value='wav')
                         with gr.Accordion("Advanced SRT Settings", open=True): tts_srt_timing_mode = gr.Radio(label="SRT Timing Mode", choices=["Strict (Cut audio to fit)", "Flexible (Prevent audio cutoff)"], value="Flexible (Prevent audio cutoff)")
+                        
                         tts_generate_btn = gr.Button("Generate Voiceover", variant="primary")
+                        tts_terminate_btn = gr.Button("Terminate", variant="stop", visible=False)
 
                     with gr.Column(scale=2):
                         gr.Markdown("## Generated Audio")
@@ -438,6 +468,7 @@ def create_gradio_ui():
         
         # --- Event Handling ---
         
+        # Whisper Tab
         def handle_whisper_model_change(model_choice):
             if model_choice == "turbo":
                 info_text = "⚠️ **Note:** The `turbo` model does not support translation."
@@ -449,12 +480,14 @@ def create_gradio_ui():
             return gr.update(visible="Pipeline" in action)
         whisper_output_action.change(fn=handle_output_action_change, inputs=whisper_output_action, outputs=whisper_pipeline_group)
 
+        # TTS Tab
         def update_tts_voice_mode(mode): return { tts_clone_voice_group: gr.update(visible=mode == 'Clone'), tts_stock_voice_group: gr.update(visible=mode == 'Stock') }
         tts_voice_mode.change(fn=update_tts_voice_mode, inputs=tts_voice_mode, outputs=[tts_clone_voice_group, tts_stock_voice_group])
         
         def update_clone_source(source): return { tts_upload_group: gr.update(visible=source == 'Upload New Sample'), tts_library_group: gr.update(visible=source == 'Use from Library') }
         tts_clone_source.change(fn=update_clone_source, inputs=tts_clone_source, outputs=[tts_upload_group, tts_library_group])
 
+        # Voice Library Tab
         def refresh_all_voice_lists():
             voices = get_library_voices()
             return gr.update(choices=voices), gr.update(value="\n".join(voices))
@@ -462,14 +495,23 @@ def create_gradio_ui():
         lib_refresh_btn.click(fn=refresh_all_voice_lists, outputs=[tts_library_voice, lib_voice_list])
         refresh_library_btn_tts.click(fn=refresh_all_voice_lists, outputs=[tts_library_voice, lib_voice_list])
 
-        def refresh_config_lists():
-            configs = get_config_files()
-            return gr.update(choices=configs), gr.update(choices=configs)
-        tts_save_config_btn.click(fn=save_tts_config, inputs=[tts_config_name, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_srt_timing_mode], outputs=tts_config_save_status).then(fn=refresh_config_lists, outputs=[tts_load_config_dd, whisper_tts_config])
+        # Config Management
+        def refresh_all_config_lists():
+            tts_configs = get_tts_config_files()
+            whisper_configs = get_whisper_config_files()
+            return gr.update(choices=tts_configs), gr.update(choices=tts_configs), gr.update(choices=whisper_configs)
+        
+        tts_save_config_btn.click(fn=save_tts_config, inputs=[tts_config_name, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_srt_timing_mode], outputs=tts_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         tts_load_config_btn.click(fn=load_tts_config, inputs=tts_load_config_dd, outputs=[tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_srt_timing_mode])
-        tts_refresh_configs_btn.click(fn=refresh_config_lists, outputs=[tts_load_config_dd, whisper_tts_config])
-        whisper_refresh_configs_btn.click(fn=refresh_config_lists, outputs=[tts_load_config_dd, whisper_tts_config])
+        tts_refresh_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
+        
+        whisper_save_config_btn.click(fn=save_whisper_config, inputs=[whisper_config_name, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_autorun_tts, whisper_tts_config], outputs=whisper_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
+        whisper_load_config_btn.click(fn=load_whisper_config, inputs=whisper_load_config_dd, outputs=[whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_autorun_tts, whisper_tts_config])
+        whisper_refresh_configs_btn_main.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
+        whisper_refresh_tts_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
 
+
+        # --- Main Pipeline Logic ---
         def handle_transcription_and_pipeline(
             audio_file_path, model_size, language, task, output_action, whisper_device_value,
             autorun, tts_config_name, tts_device_value, progress=gr.Progress(track_tqdm=True)
@@ -480,7 +522,7 @@ def create_gradio_ui():
             
             if autorun and tts_input_file_val:
                 progress(0.9, desc="Auto-running TTS...")
-                config_path = os.path.join(CONFIG_LIBRARY_PATH, f"{tts_config_name}.json")
+                config_path = os.path.join(TTS_CONFIG_LIBRARY_PATH, f"{tts_config_name}.json")
                 if not os.path.exists(config_path):
                     return text_out, preview_out, files_out, tts_input_file_val, None, f"❌ Auto-run failed: Config '{tts_config_name}' not found."
                 
@@ -496,20 +538,23 @@ def create_gradio_ui():
 
             return text_out, preview_out, files_out, tts_input_file_val, None, ""
 
-        transcribe_btn.click(
+        # --- Button Click Handlers ---
+        
+        # TTS Generate
+        tts_click_event = tts_generate_btn.click(
+            fn=run_tts_generation,
+            inputs=[tts_input_file, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_srt_timing_mode, tts_device],
+            outputs=[tts_output_audio, tts_status_textbox]
+        )
+        tts_terminate_btn.click(fn=None, cancels=[tts_click_event])
+
+        # Whisper Transcribe
+        whisper_click_event = transcribe_btn.click(
             fn=handle_transcription_and_pipeline,
             inputs=[whisper_audio_input, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_device, whisper_autorun_tts, whisper_tts_config, tts_device],
             outputs=[whisper_output_text, whisper_file_preview, whisper_output_files, tts_input_file, tts_output_audio, tts_status_textbox]
         ).then(fn=lambda file: gr.update(selected=1) if file else gr.update(), inputs=tts_input_file, outputs=tabs)
-
-        tts_generate_btn.click(
-            fn=run_tts_generation,
-            inputs=[
-                tts_input_file, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice,
-                tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_srt_timing_mode, tts_device
-            ],
-            outputs=[tts_output_audio, tts_status_textbox]
-        )
+        whisper_terminate_btn.click(fn=None, cancels=[whisper_click_event])
 
     return demo
 
