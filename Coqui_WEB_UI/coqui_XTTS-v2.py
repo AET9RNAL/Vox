@@ -208,7 +208,13 @@ def save_whisper_config(
     regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
     min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
     temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
-    suppress_ts_tokens, time_scale
+    suppress_ts_tokens, time_scale,
+    post_processing_enabled, refine_enabled, refine_steps, refine_precision,
+    remove_repetitions_enabled, remove_repetitions_max_words,
+    remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
+    split_by_gap_enabled, split_by_gap_value,
+    split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
+    split_by_duration_enabled, split_by_duration_max_dur
 ):
     if not config_name or not config_name.strip():
         return "❌ Error: Please enter a name for the configuration."
@@ -219,7 +225,7 @@ def save_whisper_config(
     config_data = {
         "model_size": model_size, "language": language, "task": task,
         "output_action": output_action, "autorun": autorun, "tts_config": tts_config,
-        "whisper_engine": whisper_engine, # NEW: Save the engine choice
+        "whisper_engine": whisper_engine,
         "regroup_enabled": regroup_enabled,
         "regroup_string": regroup_string,
         "suppress_silence": suppress_silence,
@@ -235,7 +241,26 @@ def save_whisper_config(
         "demucs_enabled": demucs_enabled,
         "only_voice_freq": only_voice_freq,
         "suppress_ts_tokens": suppress_ts_tokens,
-        "time_scale": time_scale
+        "time_scale": time_scale,
+        "post_processing_enabled": post_processing_enabled,
+        "refine_enabled": refine_enabled,
+        "refine_steps": refine_steps,
+        "refine_precision": refine_precision,
+        "remove_repetitions_enabled": remove_repetitions_enabled,
+        "remove_repetitions_max_words": remove_repetitions_max_words,
+        "remove_words_str_enabled": remove_words_str_enabled,
+        "words_to_remove": words_to_remove,
+        "find_replace_enabled": find_replace_enabled,
+        "find_word": find_word,
+        "replace_word": replace_word,
+        "split_by_gap_enabled": split_by_gap_enabled,
+        "split_by_gap_value": split_by_gap_value,
+        "split_by_punctuation_enabled": split_by_punctuation_enabled,
+        "split_by_length_enabled": split_by_length_enabled,
+        "split_by_length_max_chars": split_by_length_max_chars,
+        "split_by_length_max_words": split_by_length_max_words,
+        "split_by_duration_enabled": split_by_duration_enabled,
+        "split_by_duration_max_dur": split_by_duration_max_dur
     }
     try:
         with open(config_path, 'w', encoding='utf-8') as f: json.dump(config_data, f, indent=4)
@@ -244,9 +269,9 @@ def save_whisper_config(
         return f"❌ Error saving config: {e}"
 
 def load_whisper_config(config_name):
-    if not config_name: return [gr.update()]*20 # Updated number of outputs
+    if not config_name: return [gr.update()]*39
     config_path = os.path.join(WHISPER_CONFIG_LIBRARY_PATH, f"{config_name}.json")
-    if not os.path.exists(config_path): return [gr.update()]*20 # Updated number of outputs
+    if not os.path.exists(config_path): return [gr.update()]*39
     try:
         with open(config_path, 'r', encoding='utf-8') as f: config_data = json.load(f)
         
@@ -255,7 +280,7 @@ def load_whisper_config(config_name):
             gr.update(value=config_data.get("language")),
             gr.update(value=config_data.get("task")),
             gr.update(value=config_data.get("output_action")),
-            gr.update(value=config_data.get("whisper_engine")), # NEW: Load engine choice
+            gr.update(value=config_data.get("whisper_engine")),
             gr.update(value=config_data.get("autorun")),
             gr.update(value=config_data.get("tts_config")),
             gr.update(value=config_data.get("regroup_enabled")),
@@ -273,16 +298,38 @@ def load_whisper_config(config_name):
             gr.update(value=config_data.get("demucs_enabled")),
             gr.update(value=config_data.get("only_voice_freq")),
             gr.update(value=config_data.get("suppress_ts_tokens")),
-            gr.update(value=config_data.get("time_scale"))
+            gr.update(value=config_data.get("time_scale")),
+            gr.update(value=config_data.get("post_processing_enabled")),
+            gr.update(value=config_data.get("refine_enabled")),
+            gr.update(value=config_data.get("refine_steps")),
+            gr.update(value=config_data.get("refine_precision")),
+            gr.update(value=config_data.get("remove_repetitions_enabled")),
+            gr.update(value=config_data.get("remove_repetitions_max_words")),
+            gr.update(value=config_data.get("remove_words_str_enabled")),
+            gr.update(value=config_data.get("words_to_remove")),
+            gr.update(value=config_data.get("find_replace_enabled")),
+            gr.update(value=config_data.get("find_word")),
+            gr.update(value=config_data.get("replace_word")),
+            gr.update(value=config_data.get("split_by_gap_enabled")),
+            gr.update(value=config_data.get("split_by_gap_value")),
+            gr.update(value=config_data.get("split_by_punctuation_enabled")),
+            gr.update(value=config_data.get("split_by_length_enabled")),
+            gr.update(value=config_data.get("split_by_length_max_chars")),
+            gr.update(value=config_data.get("split_by_length_max_words")),
+            gr.update(value=config_data.get("split_by_duration_enabled")),
+            gr.update(value=config_data.get("split_by_duration_max_dur"))
         ]
-        # Also need to handle visibility of the advanced options
+        
         stable_ts_options_visible = config_data.get("whisper_engine") == "Stable-TS"
         updates.append(gr.update(visible=stable_ts_options_visible))
+
+        post_processing_accordion_visible = config_data.get("post_processing_enabled", False)
+        updates.append(gr.update(visible=post_processing_accordion_visible))
         
         return updates
     except Exception as e:
         print(f"Error loading Whisper config {config_name}: {e}")
-        return [gr.update()]*20 # Updated number of outputs
+        return [gr.update()]*39
 
 def delete_whisper_config(config_name):
     if not config_name: return "ℹ️ No config selected to delete."
@@ -320,14 +367,10 @@ def load_whisper_model(model_size, device, engine):
     print(f"⏳ Loading {engine} model '{model_size}' to device: {device}...")
     try:
         if engine == "OpenAI Whisper":
-            # Unload stable-ts model if it's loaded
-            if stable_whisper_model is not None:
-                stable_whisper_model = None
+            if stable_whisper_model is not None: stable_whisper_model = None
             whisper_model = whisper.load_model(model_size, device=device)
         elif engine == "Stable-TS":
-            # Unload openai-whisper model if it's loaded
-            if whisper_model is not None:
-                whisper_model = None
+            if whisper_model is not None: whisper_model = None
             stable_whisper_model = stable_whisper.load_model(model_size, device=device)
         
         current_whisper_device = device
@@ -469,11 +512,19 @@ def run_tts_generation(
 
 def run_whisper_transcription(
     audio_file_path, model_size, language, task, output_action, whisper_device, whisper_engine,
-    # New Stable-TS parameters
+    # Stable-TS parameters
     regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
     min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
     temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
-    suppress_ts_tokens, time_scale, progress=gr.Progress(track_tqdm=True)
+    suppress_ts_tokens, time_scale,
+    # Post-Processing options
+    post_processing_enabled, refine_enabled, refine_steps, refine_precision,
+    remove_repetitions_enabled, remove_repetitions_max_words,
+    remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
+    split_by_gap_enabled, split_by_gap_value,
+    split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
+    split_by_duration_enabled, split_by_duration_max_dur,
+    progress=gr.Progress(track_tqdm=True)
 ):
     if audio_file_path is None: return "❌ Error: Please upload an audio file.", "", [], None
     try:
@@ -481,27 +532,23 @@ def run_whisper_transcription(
         load_whisper_model(model_size, whisper_device, whisper_engine)
         lang = language if language and language.strip() else None
         
-        # New: Load audio into a NumPy array to avoid FFmpeg path issues for both engines
         progress(0.1, desc="Loading audio file...")
         audio_array = safe_load_audio(audio_file_path)
 
         progress(0.2, desc=f"Starting {whisper_engine} {task}...")
         
         if whisper_engine == "OpenAI Whisper":
-            # Pass the in-memory audio array instead of the file path
             result = whisper_model.transcribe(audio_array, language=lang, task=task, verbose=True)
             full_text = result['text']
             segments = result['segments']
         elif whisper_engine == "Stable-TS":
-            # Set regroup parameter based on user input
             regroup_param = regroup_string if regroup_string.strip() else regroup_enabled
             
-            # Pass all the new parameters to stable-ts transcribe function
             result = stable_whisper_model.transcribe(
                 audio_array,
                 language=lang,
                 task=task,
-                verbose=True, # Always set verbose to True for console output
+                verbose=True,
                 regroup=regroup_param,
                 suppress_silence=suppress_silence,
                 vad=vad_enabled,
@@ -518,10 +565,55 @@ def run_whisper_transcription(
                 suppress_ts_tokens=suppress_ts_tokens,
                 time_scale=time_scale
             )
-            full_text = result.text
-            # stable-ts segments have a slightly different structure, so we process them
-            segments = [{"start": seg.start, "end": seg.end, "text": seg.text} for seg in result.segments]
+            
+            if post_processing_enabled:
+                progress(0.8, desc="Applying Post-Processing...")
+                
+                # Apply Segmentation
+                if split_by_gap_enabled:
+                    progress(0.81, desc="Splitting by gap...")
+                    result.split_by_gap(split_by_gap_value)
+                if split_by_punctuation_enabled:
+                    progress(0.82, desc="Splitting by punctuation...")
+                    result.split_by_punctuation()
+                if split_by_length_enabled:
+                    progress(0.83, desc="Splitting by length...")
+                    result.split_by_length(split_by_length_max_chars, split_by_length_max_words)
+                if split_by_duration_enabled:
+                    progress(0.84, desc="Splitting by duration...")
+                    result.split_by_duration(split_by_duration_max_dur)
 
+                # Refine Timestamps
+                if refine_enabled:
+                    progress(0.85, desc="Refining timestamps...")
+                    stable_whisper_model.refine(
+                        audio_array,
+                        result,
+                        steps=refine_steps,
+                        precision=refine_precision,
+                        verbose=False
+                    )
+                
+                # Remove Repetitions
+                if remove_repetitions_enabled:
+                    progress(0.90, desc="Removing repetitions...")
+                    result.remove_repetition(max_words=remove_repetitions_max_words, verbose=False)
+                
+                # Remove Specific Words by String
+                if remove_words_str_enabled and words_to_remove:
+                    progress(0.95, desc="Removing specified words...")
+                    words_list = [w.strip() for w in words_to_remove.split(',') if w.strip()]
+                    result.remove_words_by_str(words_list, verbose=False)
+
+                # Find and Replace
+                if find_replace_enabled and find_word and replace_word is not None:
+                    progress(0.96, desc="Applying find and replace...")
+                    result.replace(find_word, replace_word, case_sensitive=False)
+            
+            # Extract text and segments after all post-processing
+            full_text = result.text
+            segments = [{"start": seg.start, "end": seg.end, "text": seg.text} for seg in result.segments]
+            
         if output_action == "Display Only": return full_text, "", [], None
 
         output_dir, base_name, timestamp = "whisper_outputs", os.path.splitext(os.path.basename(audio_file_path))[0], datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -585,7 +677,6 @@ def create_gradio_ui():
                         whisper_audio_input = gr.File(label="Input Audio", file_types=["audio"])
                         gr.Markdown("## 2. Configure Transcription")
                         
-                        # NEW: Transcription Engine Switch
                         whisper_engine = gr.Radio(
                             label="Transcription Engine",
                             choices=["OpenAI Whisper", "Stable-TS"],
@@ -633,6 +724,47 @@ def create_gradio_ui():
                                 demucs_enabled = gr.Checkbox(label="Isolate Vocals (Demucs)", value=False, info="Pre-processes audio with Demucs to isolate vocals. Requires Demucs installation.")
                             time_scale = gr.Slider(label="Time Scale", minimum=0.5, maximum=2.0, step=0.1, value=1.0, info="Factor for scaling audio duration. >1 slows down audio, increasing effective resolution.")
 
+                        with gr.Accordion("Post-Processing", open=False, visible=False) as post_processing_options:
+                            post_processing_enabled = gr.Checkbox(label="Enable Post-Processing", value=False, info="Applies a series of functions to the transcription result to improve quality.")
+                            
+                            with gr.Group(visible=False) as post_processing_group:
+                                with gr.Accordion("Refine Timestamps", open=False) as refine_accordion:
+                                    refine_enabled = gr.Checkbox(label="Enable Refinement", value=False, info="Iteratively refines word-level timestamps for increased accuracy.")
+                                    with gr.Row():
+                                        refine_steps = gr.Radio(label="Steps", choices=["se", "s", "e"], value="se", info="Which timestamps to refine: start/end, start only, or end only.")
+                                        refine_precision = gr.Slider(label="Precision (s)", minimum=0.02, maximum=1.0, step=0.01, value=0.1, info="Lower values increase precision but also processing time.")
+
+                                with gr.Accordion("Find and Replace", open=False) as find_replace_accordion:
+                                    find_replace_enabled = gr.Checkbox(label="Enable Find and Replace", value=False, info="Finds words and replaces them with a specified string.")
+                                    find_word = gr.Textbox(label="Find Word/Phrase", placeholder="e.g., 'uh'", info="The word or phrase to find.")
+                                    replace_word = gr.Textbox(label="Replace With", placeholder="e.g., 'a'", info="The replacement string.")
+
+                                with gr.Accordion("Split Segments", open=False) as split_accordion:
+                                    gr.Markdown("#### Split by Gap")
+                                    split_by_gap_enabled = gr.Checkbox(label="Enable Split by Gap", value=False, info="Splits segments with large gaps between words.")
+                                    split_by_gap_value = gr.Slider(label="Max Gap (s)", minimum=0.0, maximum=1.0, step=0.01, value=0.1, info="Maximum seconds of silence allowed within a single segment.")
+                                    
+                                    gr.Markdown("#### Split by Punctuation")
+                                    split_by_punctuation_enabled = gr.Checkbox(label="Enable Split by Punctuation", value=False, info="Splits segments at sentence-ending punctuation.")
+                                    
+                                    gr.Markdown("#### Split by Length")
+                                    split_by_length_enabled = gr.Checkbox(label="Enable Split by Length", value=False, info="Splits long segments into smaller ones.")
+                                    with gr.Row():
+                                        split_by_length_max_chars = gr.Slider(label="Max Chars", minimum=10, maximum=200, step=10, value=50, info="Maximum characters allowed in each segment.")
+                                        split_by_length_max_words = gr.Slider(label="Max Words", minimum=5, maximum=50, step=1, value=15, info="Maximum words allowed in each segment.")
+                                    
+                                    gr.Markdown("#### Split by Duration")
+                                    split_by_duration_enabled = gr.Checkbox(label="Enable Split by Duration", value=False, info="Splits segments longer than a certain duration.")
+                                    split_by_duration_max_dur = gr.Slider(label="Max Duration (s)", minimum=1, maximum=30, step=1, value=10, info="Maximum duration of each segment in seconds.")
+
+                                with gr.Accordion("Remove Repetitions", open=False) as remove_repetitions_accordion:
+                                    remove_repetitions_enabled = gr.Checkbox(label="Enable Repetition Removal", value=False, info="Removes consecutive repeated words.")
+                                    remove_repetitions_max_words = gr.Slider(label="Max Words in Repetition", minimum=1, maximum=10, step=1, value=1, info="Maximum number of consecutive words to consider a repetition.")
+
+                                with gr.Accordion("Remove Specific Words", open=False) as remove_words_accordion:
+                                    remove_words_str_enabled = gr.Checkbox(label="Enable Word Removal", value=False, info="Removes specific words from the transcript.")
+                                    words_to_remove = gr.Textbox(label="Words to Remove (comma-separated)", placeholder="e.g., uh, um, you know", info="Enter words or phrases to be removed.")
+                        
                         with gr.Group(visible=False) as whisper_pipeline_group:
                             whisper_autorun_tts = gr.Checkbox(label="Auto-run TTS after pipeline", value=False)
                             whisper_tts_config = gr.Dropdown(label="TTS Config to use", choices=get_tts_config_files())
@@ -714,11 +846,15 @@ def create_gradio_ui():
             return gr.update(interactive=True), gr.update(visible=False)
         whisper_model_size.change(fn=handle_whisper_model_change, inputs=whisper_model_size, outputs=[whisper_task, whisper_info_box])
         
-        # New function to handle the switch between Whisper engines and show/hide options
         def handle_whisper_engine_change(engine):
             stable_options_visibility = engine == "Stable-TS"
-            return gr.update(visible=stable_options_visibility)
-        whisper_engine.change(fn=handle_whisper_engine_change, inputs=whisper_engine, outputs=stable_ts_options)
+            post_processing_options_visibility = stable_options_visibility
+            return gr.update(visible=stable_options_visibility), gr.update(visible=post_processing_options_visibility)
+        whisper_engine.change(fn=handle_whisper_engine_change, inputs=whisper_engine, outputs=[stable_ts_options, post_processing_options])
+
+        def handle_post_processing_toggle(enabled):
+            return gr.update(visible=enabled)
+        post_processing_enabled.change(fn=handle_post_processing_toggle, inputs=post_processing_enabled, outputs=post_processing_group)
 
         def handle_output_action_change(action):
             return gr.update(visible="Pipeline" in action)
@@ -757,7 +893,13 @@ def create_gradio_ui():
                 regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
                 min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
                 temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
-                suppress_ts_tokens, time_scale
+                suppress_ts_tokens, time_scale,
+                post_processing_enabled, refine_enabled, refine_steps, refine_precision,
+                remove_repetitions_enabled, remove_repetitions_max_words,
+                remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
+                split_by_gap_enabled, split_by_gap_value,
+                split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
+                split_by_duration_enabled, split_by_duration_max_dur
             ], 
             outputs=whisper_config_save_status
         ).then(
@@ -773,7 +915,14 @@ def create_gradio_ui():
                 regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
                 min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
                 temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
-                suppress_ts_tokens, time_scale, stable_ts_options
+                suppress_ts_tokens, time_scale,
+                post_processing_enabled, refine_enabled, refine_steps, refine_precision,
+                remove_repetitions_enabled, remove_repetitions_max_words,
+                remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
+                split_by_gap_enabled, split_by_gap_value,
+                split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
+                split_by_duration_enabled, split_by_duration_max_dur,
+                stable_ts_options, post_processing_options
             ]
         )
         
@@ -784,20 +933,34 @@ def create_gradio_ui():
         def handle_transcription_and_pipeline(
             audio_file_path, model_size, language, task, output_action, whisper_device_value, whisper_engine_value,
             autorun, tts_config_name, tts_device_value,
-            # New Stable-TS parameters
+            # Stable-TS parameters
             regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
             min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
             temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
             suppress_ts_tokens, time_scale,
+            # Post-Processing options
+            post_processing_enabled, refine_enabled, refine_steps, refine_precision,
+            remove_repetitions_enabled, remove_repetitions_max_words,
+            remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
+            split_by_gap_enabled, split_by_gap_value,
+            split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
+            split_by_duration_enabled, split_by_duration_max_dur,
             progress=gr.Progress(track_tqdm=True)
         ):
             text_out, preview_out, files_out, tts_input_file_val = run_whisper_transcription(
                 audio_file_path, model_size, language, task, output_action, whisper_device_value, whisper_engine_value,
-                # New Stable-TS parameters passed here
+                # Stable-TS parameters passed here
                 regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
                 min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
                 temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
                 suppress_ts_tokens, time_scale,
+                # Post-Processing parameters passed here
+                post_processing_enabled, refine_enabled, refine_steps, refine_precision,
+                remove_repetitions_enabled, remove_repetitions_max_words,
+                remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
+                split_by_gap_enabled, split_by_gap_value,
+                split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
+                split_by_duration_enabled, split_by_duration_max_dur,
                 progress
             )
             
@@ -836,11 +999,18 @@ def create_gradio_ui():
             inputs=[
                 whisper_audio_input, whisper_model_size, whisper_language, whisper_task, whisper_output_action, whisper_device, whisper_engine,
                 whisper_autorun_tts, whisper_tts_config, tts_device,
-                # New Stable-TS options
+                # Stable-TS options
                 regroup_enabled, regroup_string, suppress_silence, vad_enabled, vad_threshold,
                 min_word_dur, no_speech_threshold, logprob_threshold, compression_ratio_threshold,
                 temperature, condition_on_previous_text, initial_prompt, demucs_enabled, only_voice_freq,
-                suppress_ts_tokens, time_scale
+                suppress_ts_tokens, time_scale,
+                # Post-Processing inputs
+                post_processing_enabled, refine_enabled, refine_steps, refine_precision,
+                remove_repetitions_enabled, remove_repetitions_max_words,
+                remove_words_str_enabled, words_to_remove, find_replace_enabled, find_word, replace_word,
+                split_by_gap_enabled, split_by_gap_value,
+                split_by_punctuation_enabled, split_by_length_enabled, split_by_length_max_chars, split_by_length_max_words,
+                split_by_duration_enabled, split_by_duration_max_dur
             ],
             outputs=[whisper_output_text, whisper_file_preview, whisper_output_files, tts_input_file, tts_output_audio, tts_status_textbox]
         ).then(fn=lambda file: gr.update(selected=1) if file else gr.update(), inputs=tts_input_file, outputs=tabs)
@@ -850,9 +1020,7 @@ def create_gradio_ui():
 
 if __name__ == "__main__":
     if not check_ffmpeg():
-        # If FFmpeg is not found, we should not proceed to launch the UI
-        # as core functionalities will fail.
-        sys.exit(1) # Exit the script with an error code.
+        sys.exit(1)
 
     app = create_gradio_ui()
     
