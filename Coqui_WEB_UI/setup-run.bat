@@ -1,14 +1,15 @@
 @echo off
 REM ============================================================================
-REM  Final script to set up the Conda environment and launch the
-REM  Coqui TTS Gradio WebUI. This version includes a specific PyTorch
-REM  installation to ensure GPU support.
+REM  Combined script to set up the Conda environment, install Higgs Audio,
+REM  and launch the merged Coqui TTS & Higgs TTS Gradio WebUI.
 REM ============================================================================
 
 SET ENV_NAME=coqui_tts_env
 SET PYTHON_VERSION=3.10
 SET SCRIPT_NAME=coqui_XTTS-v2.py
 SET REQUIREMENTS_FILE=requirements.txt
+SET HIGGS_AUDIO_DIR=higgs-audio
+SET HIGGS_REPO_URL=https://github.com/boson-ai/higgs-audio.git
 
 REM --- Check for required files ---
 IF NOT EXIST "%SCRIPT_NAME%" (
@@ -27,6 +28,15 @@ CALL conda --version >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Conda is not found in your system's PATH.
     echo [SOLUTION] Close this window and run this script from the 'Anaconda Prompt'.
+    pause
+    exit /b 1
+)
+
+REM --- Check if Git is installed ---
+CALL git --version >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Git is not found in your system's PATH.
+    echo [SOLUTION] Please install Git from https://git-scm.com/downloads and ensure it's added to your PATH.
     pause
     exit /b 1
 )
@@ -50,7 +60,7 @@ IF %ERRORLEVEL% NEQ 0 (
     echo [INFO] Environment '%ENV_NAME%' already exists.
 )
 
-REM --- STEP 3.5: Install PyTorch with CUDA support ---
+REM --- Install PyTorch with CUDA support ---
 echo [INFO] Installing PyTorch with CUDA support. This is a large download and may take some time...
 CALL conda run -n %ENV_NAME% conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
 IF %ERRORLEVEL% NEQ 0 (
@@ -59,6 +69,31 @@ IF %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 echo [INFO] PyTorch installed successfully.
+
+REM --- Clone and install Higgs Audio ---
+IF NOT EXIST "%HIGGS_AUDIO_DIR%" (
+    echo [INFO] Higgs Audio repository not found. Cloning from GitHub...
+    CALL git clone %HIGGS_REPO_URL%
+    IF %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Failed to clone Higgs Audio repository.
+        pause
+        exit /b 1
+    )
+) ELSE (
+    echo [INFO] Higgs Audio repository found.
+)
+
+echo [INFO] Installing Higgs Audio package...
+cd %HIGGS_AUDIO_DIR%
+CALL conda run -n %ENV_NAME% pip install .
+IF %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Failed to install Higgs Audio.
+    cd ..
+    pause
+    exit /b 1
+)
+cd ..
+echo [INFO] Higgs Audio installed successfully.
 
 REM --- Ensure all other packages are installed ---
 echo [INFO] Installing remaining packages from %REQUIREMENTS_FILE%...
