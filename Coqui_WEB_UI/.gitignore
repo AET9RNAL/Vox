@@ -1,3 +1,5 @@
 whisper_outputs/    
 voice_library/
 tts_configs/
+whisper_configs/
+gradio_outputs/
