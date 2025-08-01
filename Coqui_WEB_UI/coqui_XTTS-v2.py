@@ -103,7 +103,7 @@ def save_voice_to_library(audio_filepath, voice_name):
     except Exception as e:
         return f"❌ Error saving voice: {e}"
 
-def save_tts_config(config_name, language, voice_mode, clone_source, library_voice, stock_voice, output_format, srt_timing_mode):
+def save_tts_config(config_name, language, voice_mode, clone_source, library_voice, stock_voice, output_format, input_mode, srt_timing_mode):
     if not config_name or not config_name.strip():
         return "❌ Error: Please enter a name for the configuration."
     
@@ -116,7 +116,7 @@ def save_tts_config(config_name, language, voice_mode, clone_source, library_voi
     config_data = {
         "language": language, "voice_mode": voice_mode, "clone_source": clone_source,
         "library_voice": library_voice, "stock_voice": stock_voice, "output_format": output_format,
-        "srt_timing_mode": srt_timing_mode
+        "input_mode": input_mode, "srt_timing_mode": srt_timing_mode
     }
     
     try:
@@ -126,20 +126,20 @@ def save_tts_config(config_name, language, voice_mode, clone_source, library_voi
         return f"❌ Error saving config: {e}"
 
 def load_tts_config(config_name):
-    if not config_name: return [gr.update()]*7
+    if not config_name: return [gr.update()]*8
     config_path = os.path.join(TTS_CONFIG_LIBRARY_PATH, f"{config_name}.json")
-    if not os.path.exists(config_path): return [gr.update()]*7
+    if not os.path.exists(config_path): return [gr.update()]*8
     try:
         with open(config_path, 'r', encoding='utf-8') as f: config_data = json.load(f)
         return [
             gr.update(value=config_data.get("language")), gr.update(value=config_data.get("voice_mode")),
             gr.update(value=config_data.get("clone_source")), gr.update(value=config_data.get("library_voice")),
             gr.update(value=config_data.get("stock_voice")), gr.update(value=config_data.get("output_format")),
-            gr.update(value=config_data.get("srt_timing_mode"))
+            gr.update(value=config_data.get("input_mode")), gr.update(value=config_data.get("srt_timing_mode"))
         ]
     except Exception as e:
         print(f"Error loading TTS config {config_name}: {e}")
-        return [gr.update()]*7
+        return [gr.update()]*8
 
 def delete_tts_config(config_name):
     if not config_name: return "ℹ️ No config selected to delete."
@@ -296,7 +296,7 @@ def create_voiceover(segments, output_path, tts_instance, speaker_wav, language,
 
 def run_tts_generation(
     input_file, language, voice_mode, clone_source, library_voice, clone_speaker_audio, stock_voice,
-    output_format, srt_timing_mode, tts_device, progress=gr.Progress(track_tqdm=True)
+    output_format, input_mode, srt_timing_mode, tts_device, progress=gr.Progress(track_tqdm=True)
 ):
     if input_file is None: return None, "❌ Error: Please upload an input file."
     if voice_mode == 'Clone':
@@ -319,8 +319,7 @@ def run_tts_generation(
         if not os.path.exists(speaker_wav_for_tts): raise FileNotFoundError(f"Speaker reference file not found: {speaker_wav_for_tts}")
 
         input_filepath = input_file.name if hasattr(input_file, 'name') else input_file
-        file_extension = os.path.splitext(input_filepath)[1].lower()
-        is_timed = file_extension in ['.srt', '.vtt']
+        is_timed = (input_mode == "SRT/VTT Mode")
         segments = parse_subtitle_file(input_filepath) if is_timed else parse_text_file(input_filepath)
 
         if not segments: return None, "🤷 No processable content found."
@@ -454,6 +453,8 @@ def create_gradio_ui():
 
                         gr.Markdown("## 1. Upload Your Content")
                         tts_input_file = gr.File(label="Input File (.txt, .srt, .vtt)", file_types=['.txt', '.srt', '.vtt'])
+                        tts_input_mode = gr.Radio(label="Input Mode", choices=["Default", "SRT/VTT Mode"], value="Default")
+                        
                         gr.Markdown("## 2. Configure Voice")
                         tts_voice_mode = gr.Radio(label="Voice Mode", choices=['Clone', 'Stock'], value='Stock')
                         with gr.Group(visible=False) as tts_clone_voice_group:
@@ -467,7 +468,8 @@ def create_gradio_ui():
                         gr.Markdown("## 3. Configure Output")
                         tts_language = gr.Dropdown(label="Language", choices=SUPPORTED_LANGUAGES, value="en")
                         tts_output_format = gr.Radio(label="Output Format", choices=['wav', 'mp3'], value='wav')
-                        with gr.Accordion("Advanced SRT Settings", open=True): tts_srt_timing_mode = gr.Radio(label="SRT Timing Mode", choices=["Strict (Cut audio to fit)", "Flexible (Prevent audio cutoff)"], value="Flexible (Prevent audio cutoff)")
+                        with gr.Group(visible=False) as tts_srt_group:
+                            tts_srt_timing_mode = gr.Radio(label="SRT/VTT Timing Mode", choices=["Strict (Cut audio to fit)", "Flexible (Prevent audio cutoff)"], value="Flexible (Prevent audio cutoff)")
                         
                         tts_generate_btn = gr.Button("Generate Voiceover", variant="primary")
                         tts_terminate_btn = gr.Button("Terminate", variant="stop", visible=False)
@@ -508,6 +510,10 @@ def create_gradio_ui():
         
         def update_clone_source(source): return { tts_upload_group: gr.update(visible=source == 'Upload New Sample'), tts_library_group: gr.update(visible=source == 'Use from Library') }
         tts_clone_source.change(fn=update_clone_source, inputs=tts_clone_source, outputs=[tts_upload_group, tts_library_group])
+        
+        def handle_input_mode_change(mode):
+            return gr.update(visible=mode == "SRT/VTT Mode")
+        tts_input_mode.change(fn=handle_input_mode_change, inputs=tts_input_mode, outputs=tts_srt_group)
 
         def refresh_all_voice_lists():
             voices = get_library_voices()
@@ -520,8 +526,8 @@ def create_gradio_ui():
             tts_configs, whisper_configs = get_tts_config_files(), get_whisper_config_files()
             return gr.update(choices=tts_configs), gr.update(choices=tts_configs), gr.update(choices=whisper_configs)
         
-        tts_save_config_btn.click(fn=save_tts_config, inputs=[tts_config_name, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_srt_timing_mode], outputs=tts_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
-        tts_load_config_btn.click(fn=load_tts_config, inputs=tts_load_config_dd, outputs=[tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_srt_timing_mode])
+        tts_save_config_btn.click(fn=save_tts_config, inputs=[tts_config_name, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_input_mode, tts_srt_timing_mode], outputs=tts_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
+        tts_load_config_btn.click(fn=load_tts_config, inputs=tts_load_config_dd, outputs=[tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_stock_voice, tts_output_format, tts_input_mode, tts_srt_timing_mode])
         tts_delete_config_btn.click(fn=delete_tts_config, inputs=tts_load_config_dd, outputs=tts_config_save_status).then(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         tts_refresh_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_tts_config, whisper_load_config_dd])
         
@@ -551,7 +557,7 @@ def create_gradio_ui():
                     input_file=tts_input_file_val, language=config_data["language"], voice_mode=config_data["voice_mode"],
                     clone_source=config_data["clone_source"], library_voice=config_data["library_voice"], clone_speaker_audio=None,
                     stock_voice=config_data["stock_voice"], output_format=config_data["output_format"],
-                    srt_timing_mode=config_data["srt_timing_mode"], tts_device=tts_device_value, progress=progress
+                    input_mode=config_data["input_mode"], srt_timing_mode=config_data["srt_timing_mode"], tts_device=tts_device_value, progress=progress
                 )
                 return text_out, preview_out, files_out, tts_input_file_val, tts_audio_out, tts_status_out
 
@@ -563,7 +569,7 @@ def create_gradio_ui():
             fn=run_tts_generation,
             inputs=[
                 tts_input_file, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice,
-                tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_srt_timing_mode, tts_device
+                tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_input_mode, tts_srt_timing_mode, tts_device
             ],
             outputs=[tts_output_audio, tts_status_textbox]
         )
