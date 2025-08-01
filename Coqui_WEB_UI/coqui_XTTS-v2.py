@@ -73,6 +73,28 @@ def get_config_files():
     if not os.path.exists(CONFIG_LIBRARY_PATH): return []
     return [os.path.splitext(f)[0] for f in os.listdir(CONFIG_LIBRARY_PATH) if f.endswith('.json')]
 
+def save_voice_to_library(audio_filepath, voice_name):
+    """Saves an uploaded audio file to the voice library."""
+    if audio_filepath is None:
+        return "❌ Error: Please upload an audio sample first."
+    if not voice_name or not voice_name.strip():
+        return "❌ Error: Please enter a name for the voice."
+
+    sanitized_name = re.sub(r'[\\/*?:"<>|]', "", voice_name).strip().replace(" ", "_")
+    if not sanitized_name:
+        return "❌ Error: The provided voice name is invalid after sanitization."
+
+    destination_path = os.path.join(VOICE_LIBRARY_PATH, f"{sanitized_name}.wav")
+
+    if os.path.exists(destination_path):
+        return f"❌ Error: A voice with the name '{sanitized_name}' already exists."
+
+    try:
+        shutil.copyfile(audio_filepath, destination_path)
+        return f"✅ Voice '{sanitized_name}' saved successfully to the library."
+    except Exception as e:
+        return f"❌ Error saving voice: {e}"
+
 def save_tts_config(config_name, language, voice_mode, clone_source, library_voice, stock_voice, output_format, srt_timing_mode):
     if not config_name or not config_name.strip():
         return "❌ Error: Please enter a name for the configuration."
@@ -106,7 +128,6 @@ def load_tts_config(config_name):
     
     config_path = os.path.join(CONFIG_LIBRARY_PATH, f"{config_name}.json")
     if not os.path.exists(config_path):
-        # Silently fail if config doesn't exist, maybe it was deleted
         return [gr.update()]*7
 
     try:
@@ -449,20 +470,16 @@ def create_gradio_ui():
         whisper_refresh_configs_btn.click(fn=refresh_config_lists, outputs=[tts_load_config_dd, whisper_tts_config])
 
         # --- Main Pipeline Logic ---
-        # This is the new handler for the autonomous workflow
         def handle_transcription_and_pipeline(
             audio_file_path, model_size, language, task, output_action, whisper_device,
             autorun, tts_config, progress=gr.Progress(track_tqdm=True)
         ):
-            # Step 1: Run Transcription
             text_out, preview_out, files_out, tts_input_file_val = run_whisper_transcription(
                 audio_file_path, model_size, language, task, output_action, whisper_device, progress
             )
             
-            # Step 2: Check if auto-run is enabled and a file was created
             if autorun and tts_input_file_val:
                 progress(0.9, desc="Auto-running TTS...")
-                # Load the config to get the parameters
                 config_path = os.path.join(CONFIG_LIBRARY_PATH, f"{tts_config}.json")
                 if not os.path.exists(config_path):
                     return text_out, preview_out, files_out, tts_input_file_val, None, f"❌ Auto-run failed: Config '{tts_config}' not found."
@@ -470,23 +487,21 @@ def create_gradio_ui():
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
                 
-                # Call the TTS function with the loaded config and the new file
                 tts_audio_out, tts_status_out = run_tts_generation(
                     input_file=tts_input_file_val,
                     language=config_data["language"],
                     voice_mode=config_data["voice_mode"],
                     clone_source=config_data["clone_source"],
                     library_voice=config_data["library_voice"],
-                    clone_speaker_audio=None, # Not needed when using library voice
+                    clone_speaker_audio=None,
                     stock_voice=config_data["stock_voice"],
                     output_format=config_data["output_format"],
                     srt_timing_mode=config_data["srt_timing_mode"],
-                    tts_device=tts_device.value, # Get device from global setting
+                    tts_device=tts_device.value,
                     progress=progress
                 )
                 return text_out, preview_out, files_out, tts_input_file_val, tts_audio_out, tts_status_out
 
-            # If not auto-running, return default values for the TTS outputs
             return text_out, preview_out, files_out, tts_input_file_val, None, ""
 
         transcribe_btn.click(
