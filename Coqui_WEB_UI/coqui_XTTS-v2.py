@@ -1139,39 +1139,39 @@ def create_gradio_ui():
                             with gr.Group(visible=False) as post_processing_group:
                                 with gr.Tabs():
                                     with gr.TabItem("Splitting"):
-                                        split_by_gap_enabled = gr.Checkbox(label="Split by Gap", value=False)
+                                        split_by_gap_enabled = gr.Checkbox(label="Split by Gap", value=False, info="Splits a segment wherever there is a pause or silence longer than the specified 'Max Gap'.")
                                         split_by_gap_value = gr.Slider(label="Max Gap (s)", minimum=0.0, maximum=1.0, step=0.01, value=0.1)
-                                        split_by_punctuation_enabled = gr.Checkbox(label="Split by Punctuation", value=False)
-                                        split_by_length_enabled = gr.Checkbox(label="Split by Length", value=False)
+                                        split_by_punctuation_enabled = gr.Checkbox(label="Split by Punctuation", value=False, info="Splits segments at specified punctuation marks.")
+                                        split_by_length_enabled = gr.Checkbox(label="Split by Length", value=False, info="Ensures no segment is longer than the specified max characters or words.")
                                         split_by_length_max_chars = gr.Slider(label="Max Chars", minimum=10, maximum=200, step=10, value=50)
                                         split_by_length_max_words = gr.Slider(label="Max Words", minimum=5, maximum=50, step=1, value=15)
-                                        split_by_duration_enabled = gr.Checkbox(label="Split by Duration", value=False)
+                                        split_by_duration_enabled = gr.Checkbox(label="Split by Duration", value=False, info="Splits any segment that is longer than the specified max duration.")
                                         split_by_duration_max_dur = gr.Slider(label="Max Duration (s)", minimum=1, maximum=30, step=1, value=10)
                                     with gr.TabItem("Refinement & Cleaning"):
-                                        refine_enabled = gr.Checkbox(label="Refine Timestamps", value=False)
+                                        refine_enabled = gr.Checkbox(label="Refine Timestamps", value=False, info="Improves timestamp accuracy by iteratively analyzing token probabilities.")
                                         refine_steps = gr.Radio(label="Steps", choices=["se", "s", "e"], value="se")
                                         refine_precision = gr.Slider(label="Precision (s)", minimum=0.02, maximum=1.0, step=0.01, value=0.1)
-                                        remove_repetitions_enabled = gr.Checkbox(label="Remove Repetitions", value=False)
+                                        remove_repetitions_enabled = gr.Checkbox(label="Remove Repetitions", value=False, info="Removes consecutively repeated words or phrases.")
                                         remove_repetitions_max_words = gr.Slider(label="Max Words in Repetition", minimum=1, maximum=10, step=1, value=1)
-                                        remove_words_str_enabled = gr.Checkbox(label="Remove Specific Words", value=False)
+                                        remove_words_str_enabled = gr.Checkbox(label="Remove Specific Words", value=False, info="Removes specific words from the transcription (e.g., 'um', 'uh').")
                                         words_to_remove = gr.Textbox(label="Words to Remove (comma-separated)", placeholder="uh, um, you know")
                                     with gr.TabItem("Find & Replace"):
-                                        find_replace_enabled = gr.Checkbox(label="Enable Find and Replace", value=False)
+                                        find_replace_enabled = gr.Checkbox(label="Enable Find and Replace", value=False, info="Finds all occurrences of a word/phrase and replaces it with another.")
                                         find_word = gr.Textbox(label="Find Word/Phrase")
                                         replace_word = gr.Textbox(label="Replace With")
                                     with gr.TabItem("Merging & Filling"):
                                         gr.Markdown("### Merging Options")
-                                        merge_by_gap_enabled = gr.Checkbox(label="Merge by Gap", value=False)
+                                        merge_by_gap_enabled = gr.Checkbox(label="Merge by Gap", value=False, info="Merges adjacent segments if the pause between them is smaller than the specified 'Min Gap'.")
                                         merge_by_gap_min_gap = gr.Slider(label="Min Gap (s)", minimum=0.0, maximum=1.0, step=0.05, value=0.1)
                                         merge_by_gap_max_words = gr.Slider(label="Max Words per Merged Segment", minimum=10, maximum=100, step=5, value=50)
                                         
-                                        merge_by_punctuation_enabled = gr.Checkbox(label="Merge by Punctuation", value=False)
+                                        merge_by_punctuation_enabled = gr.Checkbox(label="Merge by Punctuation", value=False, info="Merges segments that have specific punctuation marks between them.")
                                         merge_by_punctuation_string = gr.Textbox(label="Punctuation to Merge On (comma-separated)", value=".?!,")
 
-                                        merge_all_segments_enabled = gr.Checkbox(label="Merge All Segments into One", value=False)
+                                        merge_all_segments_enabled = gr.Checkbox(label="Merge All Segments into One", value=False, info="Merges all segments into a single, continuous segment.")
                                         
                                         gr.Markdown("### Fill Gaps")
-                                        fill_gaps_enabled = gr.Checkbox(label="Fill Gaps from another Transcription", value=False)
+                                        fill_gaps_enabled = gr.Checkbox(label="Fill Gaps from another Transcription", value=False, info="Uses a second transcription file to fill in any gaps in the primary transcription.")
                                         fill_gaps_file_input = gr.File(label="Reference Transcription (.json)", file_types=[".json"])
                                         fill_gaps_min_gap = gr.Slider(label="Min Gap to Fill (s)", minimum=0.0, maximum=2.0, step=0.1, value=0.1)
                         
