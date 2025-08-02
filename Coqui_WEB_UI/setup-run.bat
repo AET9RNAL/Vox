@@ -2,6 +2,9 @@
 REM ============================================================================
 REM  Combined script to set up the Conda environment, install Higgs Audio,
 REM  and launch the merged Coqui TTS & Higgs TTS Gradio WebUI.
+REM
+REM  FIX: Changed the final execution step to use 'conda activate' for better
+REM  environment variable handling, matching the logic in run_with_conda.bat.
 REM ============================================================================
 
 SET ENV_NAME=coqui_tts_env
@@ -106,9 +109,20 @@ IF %ERRORLEVEL% NEQ 0 (
 echo [INFO] All packages are installed/up-to-date.
 
 REM --- Run the application ---
-echo [INFO] Launching the Gradio WebUI...
+echo [INFO] Activating Conda environment and launching the Gradio WebUI...
 echo ============================================================================
-CALL conda run -n %ENV_NAME% python %SCRIPT_NAME%
+
+REM *** FIX: Use 'conda activate' for more reliable environment setup ***
+call conda activate %ENV_NAME%
+IF %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Failed to activate conda environment: %ENV_NAME%
+    echo [INFO] Make sure the environment exists by running: conda env list
+    pause
+    exit /b 1
+)
+
+python %SCRIPT_NAME%
+
 echo ============================================================================
 
 echo.

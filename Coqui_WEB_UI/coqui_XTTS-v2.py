@@ -36,16 +36,66 @@ from TTS.config.shared_configs import BaseDatasetConfig
 import stable_whisper
 import stable_whisper.audio
 
-# Higgs Audio Imports
-try:
-    from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine, HiggsAudioResponse
-    from boson_multimodal.data_types import ChatMLSample, Message, AudioContent
-    HIGGS_AVAILABLE = True
-except ImportError as e:
-    HIGGS_AVAILABLE = False
-    print("⚠️ Higgs Audio library (boson_multimodal) not found. Please ensure you have run the setup-run.bat script successfully.")
+# Higgs Audio Imports with enhanced path handling
+HIGGS_AVAILABLE = False
+higgs_import_error = None
+
+def try_import_higgs():
+    """Try to import Higgs Audio with multiple fallback methods."""
+    global HIGGS_AVAILABLE, higgs_import_error
+    
+    # Method 1: Try direct import (if already installed)
+    try:
+        from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine, HiggsAudioResponse
+        from boson_multimodal.data_types import ChatMLSample, Message, AudioContent
+        HIGGS_AVAILABLE = True
+        print("✅ Higgs Audio library imported successfully (direct import)")
+        return True
+    except ImportError as e:
+        higgs_import_error = str(e)
+        print(f"⚠️ Direct import failed: {e}")
+    
+    # Method 2: Try adding higgs-audio directory to path
+    try:
+        import sys
+        import os
+        higgs_path = os.path.join(os.path.dirname(__file__), "higgs-audio")
+        if os.path.exists(higgs_path) and higgs_path not in sys.path:
+            print(f"📁 Adding higgs-audio path: {higgs_path}")
+            sys.path.insert(0, higgs_path)
+            
+            from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine, HiggsAudioResponse
+            from boson_multimodal.data_types import ChatMLSample, Message, AudioContent
+            HIGGS_AVAILABLE = True
+            print("✅ Higgs Audio library imported successfully (with path modification)")
+            return True
+    except ImportError as e:
+        print(f"⚠️ Path-based import failed: {e}")
+        higgs_import_error = str(e)
+    except Exception as e:
+        print(f"⚠️ Unexpected error during path-based import: {e}")
+        higgs_import_error = str(e)
+    
+    # Method 3: Check if higgs-audio directory exists and provide guidance
+    higgs_dir = os.path.join(os.path.dirname(__file__), "higgs-audio")
+    if os.path.exists(higgs_dir):
+        print(f"📁 Higgs-audio directory found at: {higgs_dir}")
+        boson_dir = os.path.join(higgs_dir, "boson_multimodal")
+        if os.path.exists(boson_dir):
+            print(f"📁 boson_multimodal package found at: {boson_dir}")
+            print("💡 Try running: conda run -n coqui_tts_env pip install -e ./higgs-audio")
+        else:
+            print("❌ boson_multimodal package not found in higgs-audio directory")
+    else:
+        print("❌ higgs-audio directory not found")
+    
+    print("⚠️ Higgs Audio library (boson_multimodal) not available.")
     print("⚠️ The 'Higgs TTS' tab will be disabled.")
-    print(f"⚠️ Import Error details: {e}")
+    print(f"⚠️ Last error: {higgs_import_error}")
+    return False
+
+
+
 
 
 # Faster Whisper for Higgs
