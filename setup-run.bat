@@ -1,10 +1,11 @@
 @echo off
 REM ============================================================================
-REM  Combined script to set up the Conda environment, install Higgs Audio,
-REM  and launch the merged Coqui TTS & Higgs TTS Gradio WebUI.
+REM  Combined script to set up the Conda environment, install dependencies,
+REM  download models, and launch the Gradio WebUI.
 REM
-REM  FIX: Reordered installation steps to install requirements *before*
-REM  Higgs Audio to ensure all dependencies are present for verification.
+REM  - Installs Python dependencies from requirements.txt
+REM  - Installs Higgs Audio
+REM  - Installs Coqui XTTS-v2 Model
 REM ============================================================================
 
 SET ENV_NAME=vox_env
@@ -106,23 +107,32 @@ IF %ERRORLEVEL% NEQ 0 (
 )
 echo [INFO] Higgs Audio installed successfully.
 
-REM --- Run the application ---
-echo [INFO] Activating Conda environment and launching the Gradio WebUI...
-echo ============================================================================
+REM --- Download Coqui XTTS Model with Enhanced Error Checking ---
+echo [INFO] Checking for Coqui XTTS model...
+CALL install_coqui.bat
+SET "COQUI_INSTALL_ERRORLEVEL=%ERRORLEVEL%"
 
-REM *** Use 'conda activate' for more reliable environment setup ***
-call conda activate %ENV_NAME%
-IF %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Failed to activate conda environment: %ENV_NAME%
-    echo [INFO] Make sure the environment exists by running: conda env list
+echo [DEBUG] Returned from install_coqui.bat with ERRORLEVEL: %COQUI_INSTALL_ERRORLEVEL%
+
+IF %COQUI_INSTALL_ERRORLEVEL% NEQ 0 (
+    echo [ERROR] The Coqui XTTS model download script failed with error code %COQUI_INSTALL_ERRORLEVEL%.
+    echo [ERROR] Please review any messages from the script above.
     pause
     exit /b 1
 )
+echo [INFO] Coqui XTTS model check complete.
 
-python %SCRIPT_NAME%
-
+REM --- Run the application using the reliable 'conda run' command ---
+echo [INFO] Launching the Gradio WebUI in the '%ENV_NAME%' environment...
 echo ============================================================================
 
+CALL conda run -n %ENV_NAME% python %SCRIPT_NAME%
+IF %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [ERROR] The application exited with an error. Please review the messages above.
+)
+
+echo ============================================================================
 echo.
-echo [INFO] The application has exited. You can close this window.
+echo [INFO] The application has finished. You can close this window.
 pause
