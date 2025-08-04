@@ -86,16 +86,13 @@ IF NOT EXIST "%HIGGS_AUDIO_DIR%" (
     echo [INFO] Higgs Audio repository found.
 )
 
-echo [INFO] Installing Higgs Audio package...
-cd %HIGGS_AUDIO_DIR%
-CALL conda run -n %ENV_NAME% pip install .
+echo [INFO] Installing Higgs Audio package properly...
+CALL install_higgs.bat
 IF %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Failed to install Higgs Audio.
-    cd ..
+    echo [ERROR] Failed to install Higgs Audio properly.
     pause
     exit /b 1
 )
-cd ..
 echo [INFO] Higgs Audio installed successfully.
 
 REM --- Ensure all other packages are installed ---

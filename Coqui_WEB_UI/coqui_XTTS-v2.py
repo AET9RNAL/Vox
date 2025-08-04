@@ -41,8 +41,10 @@ HIGGS_AVAILABLE = False
 higgs_import_error = None
 
 def try_import_higgs():
-    """Try to import Higgs Audio with multiple fallback methods."""
+    """Try to import Higgs Audio with multiple fallback methods and enhanced diagnostics."""
     global HIGGS_AVAILABLE, higgs_import_error
+    
+    print("🔍 Attempting to import Higgs Audio...")
     
     # Method 1: Try direct import (if already installed)
     try:
@@ -54,6 +56,20 @@ def try_import_higgs():
     except ImportError as e:
         higgs_import_error = str(e)
         print(f"⚠️ Direct import failed: {e}")
+        
+        # Provide specific guidance based on error type
+        if "AutoProcessor" in str(e):
+            print("💡 DIAGNOSIS: Transformers version incompatibility detected")
+            print("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix version conflicts")
+        elif "torchvision::nms" in str(e):
+            print("💡 DIAGNOSIS: PyTorch/TorchVision compatibility issue detected")
+            print("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix PyTorch versions")
+    except Exception as e:
+        higgs_import_error = str(e)
+        print(f"⚠️ Unexpected error in direct import: {e}")
+        if "torchvision::nms" in str(e):
+            print("💡 DIAGNOSIS: PyTorch/TorchVision NMS operation compatibility issue")
+            print("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix PyTorch versions")
     
     # Method 2: Try adding higgs-audio directory to path
     try:
@@ -72,11 +88,24 @@ def try_import_higgs():
     except ImportError as e:
         print(f"⚠️ Path-based import failed: {e}")
         higgs_import_error = str(e)
+        
+        # Enhanced error diagnosis
+        if "AutoProcessor" in str(e):
+            print("💡 DIAGNOSIS: Transformers version is incompatible with Higgs Audio")
+            try:
+                import transformers
+                print(f"💡 Current transformers version: {transformers.__version__}")
+                print("💡 Required: 4.45.1 <= version < 4.47.0")
+            except:
+                pass
+        elif "No module named" in str(e):
+            print("💡 DIAGNOSIS: Missing Higgs Audio installation")
+            print("💡 SOLUTION: Run 'pip install -e ./higgs-audio' or use setup-run.bat")
     except Exception as e:
         print(f"⚠️ Unexpected error during path-based import: {e}")
         higgs_import_error = str(e)
     
-    # Method 3: Check if higgs-audio directory exists and provide guidance
+    # Method 3: Enhanced directory check and diagnostics
     higgs_dir = os.path.join(os.path.dirname(__file__), "higgs-audio")
     if os.path.exists(higgs_dir):
         print(f"📁 Higgs-audio directory found at: {higgs_dir}")
@@ -86,15 +115,108 @@ def try_import_higgs():
             print("💡 Try running: conda run -n coqui_tts_env pip install -e ./higgs-audio")
         else:
             print("❌ boson_multimodal package not found in higgs-audio directory")
+            print("💡 SOLUTION: Re-clone the repository or run setup-run.bat")
     else:
         print("❌ higgs-audio directory not found")
     
     print("⚠️ Higgs Audio library (boson_multimodal) not available.")
     print("⚠️ The 'Higgs TTS' tab will be disabled.")
     print(f"⚠️ Last error: {higgs_import_error}")
+    
+    # Run detailed verification
+    verify_higgs_installation()
+    
     return False
 
-
+def verify_higgs_installation():
+    """Verify Higgs Audio installation and provide detailed diagnostics."""
+    global HIGGS_AVAILABLE, higgs_import_error
+    
+    if HIGGS_AVAILABLE:
+        return True
+    
+    print("\n=== HIGGS AUDIO INSTALLATION VERIFICATION ===")
+    
+    # Check if higgs-audio directory exists
+    higgs_dir = os.path.join(os.path.dirname(__file__), "higgs-audio")
+    if not os.path.exists(higgs_dir):
+        print("❌ higgs-audio directory not found")
+        return False
+    
+    print(f"✅ higgs-audio directory found at: {higgs_dir}")
+    
+    # Check if boson_multimodal exists
+    boson_dir = os.path.join(higgs_dir, "boson_multimodal")
+    if not os.path.exists(boson_dir):
+        print("❌ boson_multimodal package not found")
+        return False
+    
+    print(f"✅ boson_multimodal package found at: {boson_dir}")
+    
+    # Check if serve module exists
+    serve_dir = os.path.join(boson_dir, "serve")
+    if not os.path.exists(serve_dir):
+        print("❌ serve module not found in boson_multimodal")
+        return False
+    
+    print("✅ serve module found")
+    
+    # Check if __init__.py exists in serve directory
+    serve_init = os.path.join(serve_dir, "__init__.py")
+    if not os.path.exists(serve_init):
+        print("❌ __init__.py not found in serve module")
+        return False
+    
+    print("✅ serve module has __init__.py")
+    
+    # Check if serve_engine.py exists
+    serve_engine = os.path.join(serve_dir, "serve_engine.py")
+    if not os.path.exists(serve_engine):
+        print("❌ serve_engine.py not found")
+        return False
+    
+    print("✅ serve_engine.py found")
+    
+    # Check transformers version
+    try:
+        import transformers
+        version = transformers.__version__
+        print(f"✅ Transformers version: {version}")
+        
+        # Check if version is compatible
+        version_parts = version.split('.')
+        major_minor = float(f"{version_parts[0]}.{version_parts[1]}")
+        if not (4.45 <= major_minor < 4.47):
+            print(f"⚠️ WARNING: Transformers version {version} may not be compatible")
+            print("   Required: 4.45.1 <= version < 4.47.0")
+    except Exception as e:
+        print(f"⚠️ WARNING: Could not check Transformers version: {e}")
+    
+    # Try to check if the package is installed in the environment
+    try:
+        import subprocess
+        import sys
+        
+        # Get the current environment's site-packages
+        result = subprocess.run([sys.executable, "-c", "import site; print(site.getsitepackages()[0])"], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            site_packages = result.stdout.strip()
+            print(f"✅ Site packages directory: {site_packages}")
+            
+            # Check if boson_multimodal is in site-packages
+            boson_in_site = os.path.join(site_packages, "boson_multimodal")
+            if os.path.exists(boson_in_site):
+                print("✅ boson_multimodal found in site-packages")
+            else:
+                print("❌ boson_multimodal not found in site-packages")
+                print("💡 This suggests the package wasn't installed correctly")
+                return False
+    except Exception as e:
+        print(f"⚠️ WARNING: Could not check site-packages: {e}")
+    
+    print("=== END VERIFICATION ===\n")
+    return False
 
 
 
@@ -980,7 +1102,11 @@ def higgs_run_longform(transcript, voice_choice, uploaded_voice, voice_prompt, t
     finally:
         higgs_robust_file_cleanup([temp_audio_path, temp_txt_path, first_chunk_audio_path])
 
-def higgs_run_multi_speaker(transcript, voice_method, audios, voices, temperature, max_new_tokens, seed, scene_description, auto_format, device, progress=gr.Progress()):
+def higgs_run_multi_speaker(transcript, voice_method, speaker0_audio, speaker1_audio, speaker2_audio, speaker0_voice, speaker1_voice, speaker2_voice, temperature, max_new_tokens, seed, scene_description, auto_format, device, progress=gr.Progress()):
+    # This function combines the individual speaker inputs back into lists.
+    audios = [speaker0_audio, speaker1_audio, speaker2_audio]
+    voices = [speaker0_voice, speaker1_voice, speaker2_voice]
+
     load_higgs_model(device)
     if seed > 0: torch.manual_seed(seed)
     if auto_format: transcript = higgs_auto_format_multi_speaker(transcript)
@@ -1519,7 +1645,20 @@ def create_gradio_ui():
             higgs_lf_refresh_voices.click(lambda: gr.update(choices=higgs_get_all_available_voices()), None, higgs_lf_voice_prompt)
             higgs_vc_generate_btn.click(fn=higgs_run_voice_clone, inputs=[higgs_vc_transcript, higgs_vc_uploaded_voice, higgs_vc_temperature, higgs_vc_max_new_tokens, higgs_vc_seed, whisper_device], outputs=higgs_vc_output_audio)
             higgs_ms_voice_method.change(lambda choice: {higgs_ms_upload_group: gr.update(visible=choice == "Upload Voices"), higgs_ms_predefined_group: gr.update(visible=choice == "Predefined Voices")}, higgs_ms_voice_method, [higgs_ms_upload_group, higgs_ms_predefined_group])
-            higgs_ms_generate_btn.click(fn=higgs_run_multi_speaker, inputs=[higgs_ms_transcript, higgs_ms_voice_method, [higgs_ms_speaker0_audio, higgs_ms_speaker1_audio, higgs_ms_speaker2_audio], [higgs_ms_speaker0_voice, higgs_ms_speaker1_voice, higgs_ms_speaker2_voice], higgs_lf_temperature, higgs_lf_max_new_tokens, higgs_lf_seed, higgs_lf_scene_description, higgs_ms_auto_format, whisper_device], outputs=higgs_ms_output_audio)
+            
+            # --- FIX: Flatten the inputs list for the click event ---
+            higgs_ms_generate_btn.click(
+                fn=higgs_run_multi_speaker, 
+                inputs=[
+                    higgs_ms_transcript, higgs_ms_voice_method, 
+                    higgs_ms_speaker0_audio, higgs_ms_speaker1_audio, higgs_ms_speaker2_audio,
+                    higgs_ms_speaker0_voice, higgs_ms_speaker1_voice, higgs_ms_speaker2_voice,
+                    higgs_lf_temperature, higgs_lf_max_new_tokens, higgs_lf_seed, 
+                    higgs_lf_scene_description, higgs_ms_auto_format, whisper_device
+                ], 
+                outputs=higgs_ms_output_audio
+            )
+            
             def refresh_multi_voice():
                 choices = higgs_get_all_available_voices()
                 return gr.update(choices=choices), gr.update(choices=choices), gr.update(choices=choices)
@@ -1542,6 +1681,18 @@ if __name__ == "__main__":
     if not check_ffmpeg():
         print("\nHalting execution because FFmpeg is not found.")
         sys.exit(1)
+    
+    # Try to import Higgs Audio at startup
+    print("\n" + "="*60)
+    print("🔧 CHECKING HIGGS AUDIO AVAILABILITY")
+    print("="*60)
+    try_import_higgs()
+    print("="*60)
+    
+    if HIGGS_AVAILABLE:
+        print("🎉 Higgs Audio is available! The Higgs TTS tab will be enabled.")
+    else:
+        print("⚠️ Higgs Audio is not available. The Higgs TTS tab will be disabled.")
     
     app = create_gradio_ui()
     
