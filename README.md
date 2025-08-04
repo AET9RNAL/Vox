@@ -1,1 +1,1 @@
-# coqui_XTTS-v2_WEB-UI
+# Vox: The All-in-One ASR&TTS AI Suite
