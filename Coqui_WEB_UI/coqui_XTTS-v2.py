@@ -40,16 +40,30 @@ import stable_whisper.audio
 HIGGS_AVAILABLE = False
 higgs_import_error = None
 
+# --- FIX: Declare Higgs components globally ---
+# These will be populated by the try_import_higgs function.
+HiggsAudioServeEngine = None
+HiggsAudioResponse = None
+ChatMLSample = None
+Message = None
+AudioContent = None
+
 def try_import_higgs():
     """Try to import Higgs Audio with multiple fallback methods and enhanced diagnostics."""
     global HIGGS_AVAILABLE, higgs_import_error
+    # --- FIX: Make sure we are modifying the global variables ---
+    global HiggsAudioServeEngine, HiggsAudioResponse, ChatMLSample, Message, AudioContent
     
     print("🔍 Attempting to import Higgs Audio...")
     
     # Method 1: Try direct import (if already installed)
     try:
-        from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine, HiggsAudioResponse
-        from boson_multimodal.data_types import ChatMLSample, Message, AudioContent
+        from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine as HASE, HiggsAudioResponse as HAR
+        from boson_multimodal.data_types import ChatMLSample as CMS, Message as M, AudioContent as AC
+        
+        # Assign to global variables
+        HiggsAudioServeEngine, HiggsAudioResponse, ChatMLSample, Message, AudioContent = HASE, HAR, CMS, M, AC
+        
         HIGGS_AVAILABLE = True
         print("✅ Higgs Audio library imported successfully (direct import)")
         return True
@@ -80,8 +94,12 @@ def try_import_higgs():
             print(f"📁 Adding higgs-audio path: {higgs_path}")
             sys.path.insert(0, higgs_path)
             
-            from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine, HiggsAudioResponse
-            from boson_multimodal.data_types import ChatMLSample, Message, AudioContent
+            from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine as HASE, HiggsAudioResponse as HAR
+            from boson_multimodal.data_types import ChatMLSample as CMS, Message as M, AudioContent as AC
+            
+            # Assign to global variables
+            HiggsAudioServeEngine, HiggsAudioResponse, ChatMLSample, Message, AudioContent = HASE, HAR, CMS, M, AC
+
             HIGGS_AVAILABLE = True
             print("✅ Higgs Audio library imported successfully (with path modification)")
             return True
@@ -599,6 +617,9 @@ def load_higgs_model(device):
     if higgs_serve_engine is None or current_higgs_device != device:
         print(f"⏳ Loading Higgs Audio model to device: {device}...")
         try:
+            # --- FIX: Ensure HiggsAudioServeEngine is not None before using it ---
+            if HiggsAudioServeEngine is None:
+                raise RuntimeError("HiggsAudioServeEngine not imported. Check installation.")
             higgs_serve_engine = HiggsAudioServeEngine(HIGGS_MODEL_PATH, HIGGS_AUDIO_TOKENIZER_PATH, device=device)
             current_higgs_device = device
             print(f"✅ Higgs Audio Model loaded successfully on {device}.")
