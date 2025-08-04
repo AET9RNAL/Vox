@@ -1186,7 +1186,7 @@ def higgs_run_multi_speaker(transcript, voice_method, speaker0_audio, speaker1_a
     finally:
         higgs_robust_file_cleanup(temp_files)
 
-def higgs_run_subtitle_generation(subtitle_file, voice_choice, uploaded_voice, voice_prompt, temperature, seed, device, progress=gr.Progress()):
+def higgs_run_subtitle_generation(subtitle_file, voice_choice, uploaded_voice, voice_prompt, temperature, seed, timing_mode, device, progress=gr.Progress()):
     load_higgs_model(device)
     if subtitle_file is None: raise gr.Error("Please upload a .srt or .vtt file.")
     if seed > 0: torch.manual_seed(seed)
@@ -1207,36 +1207,81 @@ def higgs_run_subtitle_generation(subtitle_file, voice_choice, uploaded_voice, v
             if not os.path.exists(txt_path): higgs_create_voice_reference_txt(audio_path, device)
             with open(txt_path, 'r', encoding='utf-8') as f: text = f.read().strip()
             voice_ref = {"audio": audio_path, "text": text}
-        audio_segments, last_end_time, sample_rate = [], pysrt.SubRipTime(0), 24000
+        
+        sample_rate = 24000
+        is_strict = timing_mode == "Strict (Cut audio to fit)"
+        
+        if is_strict:
+            total_duration_sub = subs[-1].end
+            total_duration_seconds = (total_duration_sub.hours * 3600) + (total_duration_sub.minutes * 60) + total_duration_sub.seconds + (total_duration_sub.milliseconds / 1000)
+            final_audio = torch.zeros((1, int(total_duration_seconds * sample_rate)))
+        else:
+            audio_segments = []
+            last_end_time = pysrt.SubRipTime(0)
+
         system_content = "Generate audio following instruction."
         for sub in progress.tqdm(subs, desc="Generating from Subtitles"):
-            gap_seconds = max(0, (sub.start - last_end_time).to_seconds())
-            if gap_seconds > 0: audio_segments.append(torch.zeros((1, int(gap_seconds * sample_rate))))
             text = sub.text.replace('\n', ' ').strip()
             if not text:
-                last_end_time = sub.end
+                if not is_strict:
+                    last_end_time = sub.end
                 continue
+
             if voice_ref:
-                messages = [ Message(role="system", content=system_content), Message(role="user", content=voice_ref["text"]), Message(role="assistant", content=AudioContent(audio_url=ref["audio"])), Message(role="user", content=text) ]
+                messages = [ Message(role="system", content=system_content), Message(role="user", content=voice_ref["text"]), Message(role="assistant", content=AudioContent(audio_url=voice_ref["audio"])), Message(role="user", content=text) ]
             else:
                 messages = [Message(role="system", content=system_content), Message(role="user", content=text)]
+            
             output: HiggsAudioResponse = higgs_serve_engine.generate(chat_ml_sample=ChatMLSample(messages=messages), max_new_tokens=2048, temperature=temperature)
             speech_tensor = torch.from_numpy(output.audio)[None, :]
+            
             if voice_choice == "Smart Voice" and not voice_ref:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio: temp_ref_path = tmp_audio.name
                 torchaudio.save(temp_ref_path, speech_tensor, output.sampling_rate)
                 temp_txt_path = higgs_create_voice_reference_txt(temp_ref_path, device, transcript_sample=text)
                 voice_ref = {"audio": temp_ref_path, "text": text}
-            audio_segments.append(speech_tensor)
-            last_end_time = sub.end
-        if not audio_segments: raise gr.Error("No audio was generated.")
-        full_audio_tensor = torch.cat(audio_segments, dim=1)
+
+            if is_strict:
+                start_time_sub = sub.start
+                start_time_sec = (start_time_sub.hours * 3600) + (start_time_sub.minutes * 60) + start_time_sub.seconds + (start_time_sub.milliseconds / 1000)
+                
+                end_time_sub = sub.end
+                time_diff_sub = end_time_sub - start_time_sub
+                subtitle_duration_sec = (time_diff_sub.hours * 3600) + (time_diff_sub.minutes * 60) + time_diff_sub.seconds + (time_diff_sub.milliseconds / 1000)
+
+                generated_duration_sec = speech_tensor.shape[1] / sample_rate
+                if generated_duration_sec > subtitle_duration_sec:
+                    warnings.warn(f"\nLine {sub.index}: Speech ({generated_duration_sec:.2f}s) is LONGER than subtitle duration ({subtitle_duration_sec:.2f}s) and will be CUT OFF.")
+
+                start_sample = int(start_time_sec * sample_rate)
+                end_sample = start_sample + speech_tensor.shape[1]
+                
+                if end_sample > final_audio.shape[1]:
+                    speech_tensor = speech_tensor[:, :final_audio.shape[1] - start_sample]
+                    end_sample = final_audio.shape[1]
+                
+                final_audio[:, start_sample:end_sample] = speech_tensor
+            else: # Flexible
+                time_diff = sub.start - last_end_time
+                gap_seconds = max(0, time_diff.hours * 3600 + time_diff.minutes * 60 + time_diff.seconds + time_diff.milliseconds / 1000)
+                if gap_seconds > 0: audio_segments.append(torch.zeros((1, int(gap_seconds * sample_rate))))
+                
+                audio_segments.append(speech_tensor)
+                last_end_time = sub.end
+        
+        if is_strict:
+            full_audio_tensor = final_audio
+        else:
+            if not audio_segments: raise gr.Error("No audio was generated.")
+            full_audio_tensor = torch.cat(audio_segments, dim=1)
+
         output_path = higgs_get_output_path("subtitle_generation", f"{Path(subtitle_file.name).stem}_timed_audio")
         torchaudio.save(output_path, full_audio_tensor, sample_rate)
         gc.collect(); torch.cuda.empty_cache()
         return output_path
     finally:
         higgs_robust_file_cleanup([temp_ref_path, temp_txt_path])
+
 
 def higgs_save_voice_to_library(audio_data, voice_name, device):
     if audio_data is None: return "❌ Please upload an audio sample first"
@@ -1515,6 +1560,13 @@ def create_gradio_ui():
                                                 with gr.Group(visible=False) as higgs_sub_predefined_group:
                                                     higgs_sub_voice_prompt = gr.Dropdown(choices=higgs_get_all_available_voices(), label="Predefined Voice")
                                                     higgs_sub_refresh_voices_2 = gr.Button("Refresh Voice List")
+                                            
+                                            higgs_sub_timing_mode = gr.Radio(
+                                                label="Subtitle Timing Mode",
+                                                choices=["Strict (Cut audio to fit)", "Flexible (Prevent audio cutoff)"],
+                                                value="Flexible (Prevent audio cutoff)",
+                                                info="Strict mode places audio exactly at subtitle start times, cutting off overflow. Flexible mode adds silence between clips to match start times, preventing cutoff."
+                                            )
                                             higgs_sub_generate_btn = gr.Button("Generate Timed Audio", variant="primary")
                                         with gr.Column():
                                             higgs_sub_output_audio = gr.Audio(label="Generated Timed Audio", type="filepath")
@@ -1685,7 +1737,7 @@ def create_gradio_ui():
                 return gr.update(choices=choices), gr.update(choices=choices), gr.update(choices=choices)
             higgs_ms_refresh_voices_multi.click(refresh_multi_voice, None, [higgs_ms_speaker0_voice, higgs_ms_speaker1_voice, higgs_ms_speaker2_voice])
             higgs_sub_voice_choice.change(lambda choice: {higgs_sub_upload_group: gr.update(visible=choice == "Upload Voice"), higgs_sub_predefined_group: gr.update(visible=choice == "Predefined Voice")}, higgs_sub_voice_choice, [higgs_sub_upload_group, higgs_sub_predefined_group])
-            higgs_sub_generate_btn.click(fn=higgs_run_subtitle_generation, inputs=[higgs_sub_file_upload, higgs_sub_voice_choice, higgs_sub_uploaded_voice, higgs_sub_voice_prompt, higgs_lf_temperature, higgs_lf_seed, whisper_device], outputs=higgs_sub_output_audio)
+            higgs_sub_generate_btn.click(fn=higgs_run_subtitle_generation, inputs=[higgs_sub_file_upload, higgs_sub_voice_choice, higgs_sub_uploaded_voice, higgs_sub_voice_prompt, higgs_lf_temperature, higgs_lf_seed, higgs_sub_timing_mode, whisper_device], outputs=higgs_sub_output_audio)
             higgs_sub_refresh_voices_2.click(lambda: gr.update(choices=higgs_get_all_available_voices()), None, higgs_sub_voice_prompt)
             def refresh_higgs_library_and_prompts():
                 lib_voices = ["None"] + higgs_get_voice_library_voices()
