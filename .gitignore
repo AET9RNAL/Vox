@@ -1,0 +1,11 @@
+gradio_outputs/    
+higgs_configs/
+higgs_outputs/
+higgs_voice_library/
+tts_configs/
+voice_library/
+whisper_configs/
+whisper_outputs/
+XTTS_model/
+higgs-audio/
+TODO.md

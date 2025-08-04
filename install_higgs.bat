@@ -1,12 +1,12 @@
 @echo off
 REM ============================================================================
-REM Script to properly install Higgs Audio in the conda environment
+REM Script to install Higgs Audio in the conda environment
 REM ============================================================================
 
-SET ENV_NAME=coqui_tts_env
+SET ENV_NAME=vox_env
 SET HIGGS_AUDIO_DIR=higgs-audio
 
-echo [INFO] Installing Higgs Audio properly...
+echo [INFO] Installing Higgs Audio...
 
 REM Check if we're in the right directory
 IF NOT EXIST "%HIGGS_AUDIO_DIR%" (

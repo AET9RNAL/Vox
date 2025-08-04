@@ -40,8 +40,8 @@ import stable_whisper.audio
 HIGGS_AVAILABLE = False
 higgs_import_error = None
 
-# --- FIX: Declare Higgs components globally ---
-# These will be populated by the try_import_higgs function.
+#Declare Higgs components globally
+#These will be populated by the try_import_higgs function.
 HiggsAudioServeEngine = None
 HiggsAudioResponse = None
 ChatMLSample = None
@@ -51,7 +51,7 @@ AudioContent = None
 def try_import_higgs():
     """Try to import Higgs Audio with multiple fallback methods and enhanced diagnostics."""
     global HIGGS_AVAILABLE, higgs_import_error
-    # --- FIX: Make sure we are modifying the global variables ---
+    # Make sure we are modifying the global variables ---
     global HiggsAudioServeEngine, HiggsAudioResponse, ChatMLSample, Message, AudioContent
     
     print("🔍 Attempting to import Higgs Audio...")
@@ -252,7 +252,7 @@ except ImportError:
 # --- Global Model and Configuration ---
 # ========================================================================================
 
-# *** FIX ***: Define the path to the local model directory.
+# Define the path to the local model directory.
 # This tells the script to load the model from the 'XTTS_model' folder in your project directory.
 LOCAL_XTTS_MODEL_PATH = "XTTS_model"
 
@@ -617,7 +617,7 @@ def load_higgs_model(device):
     if higgs_serve_engine is None or current_higgs_device != device:
         print(f"⏳ Loading Higgs Audio model to device: {device}...")
         try:
-            # --- FIX: Ensure HiggsAudioServeEngine is not None before using it ---
+            # Ensure HiggsAudioServeEngine is not None before using it ---
             if HiggsAudioServeEngine is None:
                 raise RuntimeError("HiggsAudioServeEngine not imported. Check installation.")
             higgs_serve_engine = HiggsAudioServeEngine(HIGGS_MODEL_PATH, HIGGS_AUDIO_TOKENIZER_PATH, device=device)
@@ -1312,8 +1312,8 @@ def higgs_delete_voice_from_library(voice_name):
 # --- Gradio UI ---
 # ========================================================================================
 def create_gradio_ui():
-    with gr.Blocks(title="Unified TTS & ASR Pipeline") as demo:
-        gr.HTML("""<div style="text-align: center; max-width: 800px; margin: 0 auto;"><h1 style="color: #4CAF50;">Unified TTS & ASR Pipeline</h1><p style="font-size: 1.1em;">A complete toolkit for audio transcription and voiceover generation with Coqui XTTS and Higgs TTS.</p></div>""")
+    with gr.Blocks(title="Vox: The All-in-One ASR&TTS AI Suite") as demo:
+        gr.HTML("""<div style="text-align: center; max-width: 800px; margin: 0 auto;"><h1 style="color: #4CAF50;">Vox: The All-in-One ASR&TTS AI Suite</h1><p style="font-size: 1.1em;">A complete toolkit for audio transcription and voiceover generation with Coqui XTTS-v2 and Higgs-v3 TTS.</p></div>""")
         
         with gr.Accordion("⚙️ Global Device & Process Settings", open=True):
             with gr.Row():

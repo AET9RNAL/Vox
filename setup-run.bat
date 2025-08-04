@@ -3,13 +3,13 @@ REM ============================================================================
 REM  Combined script to set up the Conda environment, install Higgs Audio,
 REM  and launch the merged Coqui TTS & Higgs TTS Gradio WebUI.
 REM
-REM  FIX: Changed the final execution step to use 'conda activate' for better
-REM  environment variable handling, matching the logic in run_with_conda.bat.
+REM  FIX: Reordered installation steps to install requirements *before*
+REM  Higgs Audio to ensure all dependencies are present for verification.
 REM ============================================================================
 
-SET ENV_NAME=coqui_tts_env
+SET ENV_NAME=vox_env
 SET PYTHON_VERSION=3.10
-SET SCRIPT_NAME=coqui_XTTS-v2.py
+SET SCRIPT_NAME=Vox.py
 SET REQUIREMENTS_FILE=requirements.txt
 SET HIGGS_AUDIO_DIR=higgs-audio
 SET HIGGS_REPO_URL=https://github.com/boson-ai/higgs-audio.git
@@ -73,7 +73,7 @@ IF %ERRORLEVEL% NEQ 0 (
 )
 echo [INFO] PyTorch installed successfully.
 
-REM --- Clone and install Higgs Audio ---
+REM --- Clone Higgs Audio repo if it doesn't exist ---
 IF NOT EXIST "%HIGGS_AUDIO_DIR%" (
     echo [INFO] Higgs Audio repository not found. Cloning from GitHub...
     CALL git clone %HIGGS_REPO_URL%
@@ -86,17 +86,8 @@ IF NOT EXIST "%HIGGS_AUDIO_DIR%" (
     echo [INFO] Higgs Audio repository found.
 )
 
-echo [INFO] Installing Higgs Audio package properly...
-CALL install_higgs.bat
-IF %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Failed to install Higgs Audio properly.
-    pause
-    exit /b 1
-)
-echo [INFO] Higgs Audio installed successfully.
-
-REM --- Ensure all other packages are installed ---
-echo [INFO] Installing remaining packages from %REQUIREMENTS_FILE%...
+REM --- Ensure all other packages are installed FIRST ---
+echo [INFO] Installing packages from %REQUIREMENTS_FILE%...
 CALL conda run -n %ENV_NAME% pip install -r %REQUIREMENTS_FILE%
 IF %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Failed to install packages from %REQUIREMENTS_FILE%.
@@ -105,11 +96,21 @@ IF %ERRORLEVEL% NEQ 0 (
 )
 echo [INFO] All packages are installed/up-to-date.
 
+REM --- Now, install Higgs Audio ---
+echo [INFO] Installing Higgs Audio package...
+CALL install_higgs.bat
+IF %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Failed to install Higgs Audio properly.
+    pause
+    exit /b 1
+)
+echo [INFO] Higgs Audio installed successfully.
+
 REM --- Run the application ---
 echo [INFO] Activating Conda environment and launching the Gradio WebUI...
 echo ============================================================================
 
-REM *** FIX: Use 'conda activate' for more reliable environment setup ***
+REM *** Use 'conda activate' for more reliable environment setup ***
 call conda activate %ENV_NAME%
 IF %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Failed to activate conda environment: %ENV_NAME%
