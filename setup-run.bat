@@ -126,11 +126,15 @@ REM --- Run the application using the reliable 'conda run' command ---
 echo [INFO] Launching the Gradio WebUI in the '%ENV_NAME%' environment...
 echo ============================================================================
 
-CALL conda run -n %ENV_NAME% python %SCRIPT_NAME%
+call conda activate %ENV_NAME%
 IF %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo [ERROR] The application exited with an error. Please review the messages above.
+    echo [ERROR] Failed to activate conda environment: %ENV_NAME%
+    echo [INFO] Make sure the environment exists by running: conda env list
+    pause
+    exit /b 1
 )
+
+python %SCRIPT_NAME%
 
 echo ============================================================================
 echo.
