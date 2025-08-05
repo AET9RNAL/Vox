@@ -26,6 +26,9 @@ from pydub.utils import which as pydub_which
 import pysrt
 from collections import namedtuple
 
+
+import styletts2_module
+
 # Coqui Imports
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
@@ -294,11 +297,11 @@ AVAILABLE_DEVICES = get_available_devices()
 
 # Coqui Stock Voices
 STOCK_VOICES = {
-    'Clarabelle': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/female.wav",
-    'Jordan': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/male.wav",
-    'Hina': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/hina.wav",
-    'William': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/william.wav",
-    'Grace': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/grace.wav"
+    'Clarabelle': "[https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/female.wav](https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/female.wav)",
+    'Jordan': "[https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/male.wav](https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/male.wav)",
+    'Hina': "[https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/hina.wav](https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/hina.wav)",
+    'William': "[https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/william.wav](https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/william.wav)",
+    'Grace': "[https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/grace.wav](https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/grace.wav)"
 }
 
 SUPPORTED_LANGUAGES = [
@@ -318,7 +321,7 @@ def check_ffmpeg():
         print("This application requires FFmpeg for audio processing.")
         print("Please install it and ensure it's in your system's PATH.")
         print("Installation instructions:")
-        print("  - Windows: Download from https://ffmpeg.org/download.html (and add to PATH)")
+        print("  - Windows: Download from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html) (and add to PATH)")
         print("  - MacOS (via Homebrew): brew install ffmpeg")
         print("  - Linux (Debian/Ubuntu): sudo apt update && sudo apt install ffmpeg")
         return False
@@ -338,6 +341,8 @@ os.makedirs("higgs_outputs/voice_cloning", exist_ok=True)
 os.makedirs("higgs_outputs/longform_generation", exist_ok=True)
 os.makedirs("higgs_outputs/multi_speaker", exist_ok=True)
 os.makedirs("higgs_outputs/subtitle_generation", exist_ok=True)
+os.makedirs("styletts2_outputs", exist_ok=True)
+
 
 def clear_tts_cache():
     global tts_model
@@ -1318,7 +1323,7 @@ def create_gradio_ui():
         with gr.Accordion("⚙️ Global Device & Process Settings", open=True):
             with gr.Row():
                 tts_device = gr.Radio(label="TTS Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
-                whisper_device = gr.Radio(label="Whisper/Higgs Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
+                whisper_device = gr.Radio(label="Whisper/Higgs/StyleTTS2 Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
                 clear_cache_button = gr.Button("Clear Coqui TTS Cache", variant="stop")
                 cache_status = gr.Textbox(label="Cache Status", interactive=False)
         
@@ -1478,6 +1483,49 @@ def create_gradio_ui():
                         gr.Markdown("## Current Voices")
                         lib_voice_list = gr.Textbox(label="Voices in Library", value="\n".join(get_library_voices()), interactive=False, lines=10)
                         lib_refresh_btn = gr.Button("Refresh Library")
+
+            # --- StyleTTS2 Tab ---
+            with gr.Tab("StyleTTS2", id=5):
+                with gr.Tabs():
+                    with gr.TabItem("Voice Generation & Cloning"):
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                gr.Markdown("## 1. Select Model")
+                                styletts2_model_dd = gr.Dropdown(label="Select Model", choices=styletts2_module.get_available_models(), value="Pre-trained LibriTTS")
+                                styletts2_refresh_models_btn = gr.Button("Refresh Models")
+
+                                gr.Markdown("## 2. Provide Content & Voice")
+                                styletts2_text_input = gr.Textbox(label="Text to Synthesize", lines=5, placeholder="Enter text here...")
+                                styletts2_ref_audio = gr.Audio(label="Reference Voice Sample (3-10s WAV)", type="filepath")
+
+                                gr.Markdown("## 3. Configure Generation")
+                                with gr.Accordion("Advanced Settings", open=False):
+                                    styletts2_alpha = gr.Slider(label="Pitch Control (alpha)", minimum=0.0, maximum=1.0, value=0.3, step=0.1)
+                                    styletts2_beta = gr.Slider(label="Energy Control (beta)", minimum=0.0, maximum=1.0, value=0.3, step=0.1)
+                                    styletts2_diffusion_steps = gr.Slider(label="Diffusion Steps", minimum=5, maximum=50, value=10, step=1)
+                                    styletts2_embedding_scale = gr.Slider(label="Embedding Scale", minimum=1.0, maximum=5.0, value=1.5, step=0.1)
+                                
+                                styletts2_generate_btn = gr.Button("Generate Audio", variant="primary")
+
+                            with gr.Column(scale=2):
+                                gr.Markdown("## Generated Audio")
+                                styletts2_output_audio = gr.Audio(label="Output", type="filepath")
+                                styletts2_status_textbox = gr.Textbox(label="Status", interactive=False)
+                    
+                    with gr.TabItem("Fine-Tuning"):
+                        gr.Markdown("# 🔬 StyleTTS2 Fine-Tuning")
+                        gr.Markdown("Prepare your dataset in the LJSpeech format (a folder with a `wavs` subfolder and a `metadata.csv` file).")
+                        with gr.Row():
+                            styletts2_ft_dataset = gr.Textbox(label="Path to Dataset Folder", placeholder="e.g., C:/Users/YourUser/Documents/MyVoiceData")
+                            styletts2_ft_model_name = gr.Textbox(label="New Model Name", placeholder="e.g., my_custom_voice")
+                        with gr.Row():
+                            styletts2_ft_epochs = gr.Slider(label="Epochs", minimum=10, maximum=500, value=100, step=10)
+                            styletts2_ft_batch_size = gr.Slider(label="Batch Size", minimum=2, maximum=32, value=8, step=2)
+                            styletts2_ft_learning_rate = gr.Number(label="Learning Rate", value=1e-5)
+                        
+                        styletts2_ft_start_btn = gr.Button("Start Fine-Tuning (Simulated)", variant="primary")
+                        styletts2_ft_status = gr.Textbox(label="Fine-Tuning Status", lines=10, interactive=False)
+
 
             if HIGGS_AVAILABLE:
                 with gr.Tab("Higgs TTS", id=3):
@@ -1706,6 +1754,23 @@ def create_gradio_ui():
         tts_refresh_configs_btn.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_load_config_dd])
         whisper_refresh_configs_btn_main.click(fn=refresh_all_config_lists, outputs=[tts_load_config_dd, whisper_load_config_dd])
         whisper_refresh_tts_configs_btn.click(lambda: gr.update(choices=get_tts_config_files()), None, whisper_tts_config)
+
+        # StyleTTS2 Event Handlers
+        styletts2_generate_btn.click(
+            fn=styletts2_module.run_styletts_generation,
+            inputs=[styletts2_text_input, styletts2_ref_audio, styletts2_model_dd, styletts2_alpha, styletts2_beta, styletts2_diffusion_steps, styletts2_embedding_scale, whisper_device],
+            outputs=[styletts2_output_audio, styletts2_status_textbox]
+        )
+        styletts2_refresh_models_btn.click(
+            fn=lambda: gr.update(choices=styletts2_module.get_available_models()),
+            outputs=styletts2_model_dd
+        )
+        styletts2_ft_start_btn.click(
+            fn=styletts2_module.run_styletts_finetuning,
+            inputs=[styletts2_ft_dataset, styletts2_ft_model_name, styletts2_ft_epochs, styletts2_ft_batch_size, styletts2_ft_learning_rate],
+            outputs=styletts2_ft_status
+        )
+
 
         # Higgs Event Handlers
         if HIGGS_AVAILABLE:
