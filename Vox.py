@@ -1346,7 +1346,7 @@ def create_gradio_ui():
                         gr.Markdown("## 2. Configure Transcription")
                         
                         whisper_engine = gr.Radio(label="Transcription Engine", choices=["OpenAI Whisper", "Stable-TS"], value="OpenAI Whisper", info="Stable-TS provides more natural, sentence-based segmentation.")
-                        whisper_model_size = gr.Dropdown(label="Whisper Model", choices=["tiny", "base", "small", "medium", "large", "turbo", "large-v2", "large-v3", "large-v3-turbo"], value="base")
+                        whisper_model_size = gr.Dropdown(label="Whisper Model", choices=["tiny", "base", "small", "medium", "large", "turbo"], value="base")
                         whisper_language = gr.Textbox(label="Language (optional)", info="e.g., 'en', 'es'. Leave blank to auto-detect.")
                         whisper_task = gr.Radio(label="Task", choices=["transcribe", "translate"], value="transcribe")
                         whisper_info_box = gr.Markdown(visible=False)
