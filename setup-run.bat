@@ -6,7 +6,6 @@ REM
 REM  - Installs Python dependencies from requirements.txt
 REM  - Installs Higgs Audio
 REM  - Installs Coqui XTTS-v2 Model
-REM  - Installs StyleTTS2 Model and Dependencies
 REM ============================================================================
 
 SET ENV_NAME=vox_env
@@ -122,17 +121,6 @@ IF %COQUI_INSTALL_ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 echo [INFO] Coqui XTTS model check complete.
-
-REM --- Download and Setup StyleTTS2 ---
-echo [INFO] Checking for StyleTTS2 model and dependencies...
-CALL install_styletts2.bat
-IF %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] The StyleTTS2 setup script failed.
-    pause
-    exit /b 1
-)
-echo [INFO] StyleTTS2 setup complete.
-
 
 REM --- Run the application using the reliable 'conda run' command ---
 echo [INFO] Launching the Gradio WebUI in the '%ENV_NAME%' environment...
