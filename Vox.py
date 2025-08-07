@@ -1319,6 +1319,27 @@ def higgs_delete_voice_from_library(voice_name):
     except Exception as e:
         return f"❌ Error deleting voice: {e}"
 
+def _resolve_speaker_ref(uploaded_path, textbox_path, output_base_path):
+    # 1) Prefer the newly uploaded file
+    if uploaded_path and os.path.exists(uploaded_path):
+        return uploaded_path
+    # 2) Fall back to a manual path typed/pasted
+    if textbox_path and os.path.exists(textbox_path):
+        return textbox_path
+    # 3) Last resort: try to auto-discover from latest run
+    try:
+        if output_base_path and train_module is not None:
+            c, v, ckpt, spk, _ = train_module.autofill_ft_paths(output_base_path)
+            if spk and os.path.exists(spk):
+                return spk
+    except Exception:
+        pass
+    return ""  # let backend error gracefully if still empty
+
+def _run_ft_inference(lang, tts_text, uploaded_ref, textbox_ref, output_base_path):
+    ref = _resolve_speaker_ref(uploaded_ref, textbox_ref, output_base_path)
+    return train_module.run_tts(lang, tts_text, ref)
+
 # ========================================================================================
 # --- Gradio UI ---
 # ========================================================================================
@@ -1533,6 +1554,16 @@ def create_gradio_ui():
                         with gr.Row():
                             ft_tts_output_audio = gr.Audio(label="Generated Audio")
                             ft_reference_audio_display = gr.Audio(label="Reference Audio Used")
+                        with gr.Row():
+                            ft_speaker_reference_upload = gr.Audio(
+                                label="Speaker reference (upload a short WAV/MP3, optional)",
+                                type="filepath"     # IMPORTANT: backend expects a string path
+                                )
+                            ft_speaker_reference = gr.Textbox(
+                                label="Speaker reference path (optional)",
+                                placeholder="Path to .wav of the target voice",
+                                interactive=True
+                            )
             
             with gr.Tab("Coqui Voice Library", id=2):
                 with gr.Row():
@@ -1811,9 +1842,9 @@ def create_gradio_ui():
                 outputs=[ft_load_status]
             )
             ft_tts_btn.click(
-                fn=train_module.run_tts,
-                inputs=[ft_tts_language, ft_tts_text, ft_speaker_reference],
-                outputs=[ft_tts_status, ft_tts_output_audio, ft_reference_audio_display]
+                _run_ft_inference,
+                inputs=[ft_tts_language, ft_tts_text, ft_speaker_reference_upload, ft_speaker_reference],
+                outputs=[ft_tts_status, ft_tts_output_audio, ft_reference_audio_display],
             )
 
         # Config Refresh Logic
