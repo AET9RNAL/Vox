@@ -29,3 +29,6 @@ accelerate>=0.26.0
 ffmpeg-python
 pysrt
 faster-whisper
+
+#Coaqui-XTTSv2 training dependencies
+hf_xet

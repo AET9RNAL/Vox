@@ -36,6 +36,9 @@ from TTS.config.shared_configs import BaseDatasetConfig
 import stable_whisper
 import stable_whisper.audio
 
+# Local Backend Import for Fine-Tuning
+import Coqui_XTTSv2_train_module as train_module
+
 # Higgs Audio Imports with enhanced path handling
 HIGGS_AVAILABLE = False
 higgs_import_error = None
@@ -294,11 +297,14 @@ AVAILABLE_DEVICES = get_available_devices()
 
 # Coqui Stock Voices
 STOCK_VOICES = {
-    'Clarabelle': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/female.wav",
-    'Jordan': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/male.wav",
-    'Hina': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/hina.wav",
-    'William': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/william.wav",
-    'Grace': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/grace.wav"
+    'De': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/de_sample.wav",
+    'En': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/en_sample.wav",
+    'Es': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/es_sample.wav",
+    'Fr': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/fr_sample.wav",
+    'Ja': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/ja-sample.wav",
+    'Pt': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/pt-sample.wav",
+    'Tr': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/tr-sample.wav",
+    'Zh-Cn': "https://huggingface.co/coqui/XTTS-v2/resolve/main/samples/zh-cn-sample.wav"
 }
 
 SUPPORTED_LANGUAGES = [
@@ -1318,7 +1324,7 @@ def create_gradio_ui():
         with gr.Accordion("⚙️ Global Device & Process Settings", open=True):
             with gr.Row():
                 tts_device = gr.Radio(label="TTS Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
-                whisper_device = gr.Radio(label="Whisper/Higgs Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
+                whisper_device = gr.Radio(label="Whisper/Higgs/Training Device", choices=AVAILABLE_DEVICES, value=AVAILABLE_DEVICES[0])
                 clear_cache_button = gr.Button("Clear Coqui TTS Cache", variant="stop")
                 cache_status = gr.Textbox(label="Cache Status", interactive=False)
         
@@ -1451,7 +1457,7 @@ def create_gradio_ui():
                             with gr.Group(visible=False) as tts_library_group:
                                 tts_library_voice = gr.Dropdown(label="Select Library Voice", choices=get_library_voices())
                                 refresh_library_btn_tts = gr.Button("Refresh Library")
-                        with gr.Group(visible=True) as tts_stock_voice_group: tts_stock_voice = gr.Dropdown(label="Stock Voice", choices=list(STOCK_VOICES.keys()), value='Clarabelle')
+                        with gr.Group(visible=True) as tts_stock_voice_group: tts_stock_voice = gr.Dropdown(label="Stock Voice", choices=list(STOCK_VOICES.keys()), value='En')
                         
                         gr.Markdown("## 3. Configure Output")
                         tts_language = gr.Dropdown(label="Language", choices=SUPPORTED_LANGUAGES, value="en")
@@ -1465,7 +1471,56 @@ def create_gradio_ui():
                         gr.Markdown("## Generated Audio")
                         tts_output_audio = gr.Audio(label="Output", type="filepath", show_download_button=True)
                         tts_status_textbox = gr.Textbox(label="Status", interactive=False)
+                    with gr.Column():
+                        gr.HTML('''
+                    <div style="background:#23272e;border-radius:8px;padding:1em 1.5em;margin-top:1em;border-left:5px solid #2196f3;max-width:420px;margin-left:auto;margin-right:auto;">
+                        <b>⭐ Key Features:</b><br>
+                        • Cross-language support: Can clone voices across 17 different languages.<br>
+                        • Emotion and style transfer: Preserves emotional characteristics and speaking style from the reference clip.<br>
+                        • Multiple speaker references: v2 supports using multiple speaker references and interpolation between speakers.<br>
+                        • Architectural improvements: Better speaker conditioning and stability improvements over v1.<br>
+                    </div>
+                    ''')
+            
+            with gr.Tab("Coqui XTTS Fine-Tuning", id=4):
+                with gr.Tabs():
+                    with gr.Tab("1 - Data Processing"):
+                        ft_out_path = gr.Textbox(label="Output Path", value=os.path.join(os.getcwd(), "xtts_ft_training"), info="Path to save the processed dataset and model checkpoints.")
+                        ft_upload_files = gr.File(file_count="multiple", label="Upload Audio Files for Training (.wav, .mp3, .flac)")
+                        ft_language = gr.Dropdown(label="Dataset Language", value="en", choices=SUPPORTED_LANGUAGES)
+                        ft_preprocess_btn = gr.Button("Step 1: Create Dataset", variant="primary")
+                        ft_preprocess_status = gr.Label(label="Progress")
+                        ft_train_csv = gr.Textbox(label="Train CSV (auto-filled)", interactive=False)
+                        ft_eval_csv = gr.Textbox(label="Eval CSV (auto-filled)", interactive=False)
 
+                    with gr.Tab("2 - Fine-tuning"):
+                        gr.Markdown("Ensure the Train and Eval CSV paths are filled from the previous step.")
+                        ft_num_epochs = gr.Slider(label="Number of Epochs", minimum=1, maximum=100, step=1, value=10)
+                        ft_batch_size = gr.Slider(label="Batch Size", minimum=2, maximum=512, step=1, value=4)
+                        ft_grad_acumm = gr.Slider(label="Gradient Accumulation Steps", minimum=2, maximum=128, step=1, value=1)
+                        ft_max_audio_length = gr.Slider(label="Max Permitted Audio Length (s)", minimum=2, maximum=20, step=1, value=11)
+                        ft_train_btn = gr.Button("Step 2: Run Training", variant="primary")
+                        ft_train_status = gr.Label(label="Progress")
+                        ft_xtts_config = gr.Textbox(label="Fine-tuned Config Path", interactive=False)
+                        ft_xtts_vocab = gr.Textbox(label="Fine-tuned Vocab Path", interactive=False)
+                        ft_xtts_checkpoint = gr.Textbox(label="Fine-tuned Checkpoint Path", interactive=False)
+                        ft_speaker_reference = gr.Textbox(label="Speaker Reference Audio", interactive=False)
+                        
+                    with gr.Tab("3 - Inference"):
+                        gr.Markdown("Load the fine-tuned model using the paths from the previous step.")
+                        with gr.Row():
+                            with gr.Column():
+                                ft_load_btn = gr.Button("Step 3: Load Fine-tuned Model", variant="primary")
+                                ft_load_status = gr.Label(label="Progress")
+                            with gr.Column():
+                                ft_tts_language = gr.Dropdown(label="Inference Language", value="en", choices=SUPPORTED_LANGUAGES)
+                                ft_tts_text = gr.Textbox(label="Text to Synthesize", value="This fine-tuned model sounds great!")
+                                ft_tts_btn = gr.Button("Step 4: Generate Speech", variant="primary")
+                        ft_tts_status = gr.Label(label="Progress")
+                        with gr.Row():
+                            ft_tts_output_audio = gr.Audio(label="Generated Audio")
+                            ft_reference_audio_display = gr.Audio(label="Reference Audio Used")
+            
             with gr.Tab("Coqui Voice Library", id=2):
                 with gr.Row():
                     with gr.Column(scale=1):
@@ -1699,6 +1754,28 @@ def create_gradio_ui():
         lib_save_btn.click(fn=save_voice_to_library, inputs=[lib_new_voice_audio, lib_new_voice_name], outputs=[lib_save_status]).then(fn=refresh_coqui_library, outputs=[tts_library_voice, lib_voice_list])
         lib_refresh_btn.click(fn=refresh_coqui_library, outputs=[tts_library_voice, lib_voice_list])
         refresh_library_btn_tts.click(fn=refresh_coqui_library, outputs=[tts_library_voice, lib_voice_list])
+
+        # Coqui Fine-Tuning Logic
+        ft_preprocess_btn.click(
+            fn=train_module.preprocess_dataset,
+            inputs=[ft_upload_files, ft_language, ft_out_path],
+            outputs=[ft_preprocess_status, ft_train_csv, ft_eval_csv]
+        )
+        ft_train_btn.click(
+            fn=train_module.train_model,
+            inputs=[ft_language, ft_train_csv, ft_eval_csv, ft_num_epochs, ft_batch_size, ft_grad_acumm, ft_out_path, ft_max_audio_length],
+            outputs=[ft_train_status, ft_xtts_config, ft_xtts_vocab, ft_xtts_checkpoint, ft_speaker_reference]
+        )
+        ft_load_btn.click(
+            fn=train_module.load_model,
+            inputs=[ft_xtts_checkpoint, ft_xtts_config, ft_xtts_vocab],
+            outputs=[ft_load_status]
+        )
+        ft_tts_btn.click(
+            fn=train_module.run_tts,
+            inputs=[ft_tts_language, ft_tts_text, ft_speaker_reference],
+            outputs=[ft_tts_status, ft_tts_output_audio, ft_reference_audio_display]
+        )
 
         # Config Refresh Logic
         def refresh_all_config_lists():

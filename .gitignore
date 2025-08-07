@@ -10,3 +10,7 @@ XTTS_model/
 higgs-audio/
 TODO.md
 /StyleTTS2
+.idea/
+.venv/
+xtts_ft_training/
+__pycache__/
