@@ -67,7 +67,6 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Loading Whisper Model for transcription...")
-    # FIX: Use "default" compute_type for better compatibility and to avoid cuDNN errors.
     compute_type = "float16" if device == "cuda" else "default"
     print(f"Using compute type: {compute_type}")
     asr_model = WhisperModel("large-v2", device=device, compute_type=compute_type)
@@ -110,9 +109,8 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
 
             if word.word[-1] in ["!", ".", "?"]:
                 sentence = sentence.strip()
-                if not sentence: continue # Skip empty sentences
+                if not sentence: continue
                 
-                # Expand numbers and abbreviations plus normalization
                 sentence = multilingual_cleaners(sentence, target_language)
                 
                 audio_file_name, _ = os.path.splitext(os.path.basename(audio_path))
@@ -127,13 +125,13 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
                 first_word = True
 
                 audio_segment = wav[int(sr * sentence_start_time):int(sr * word_end_time)].unsqueeze(0)
-                if audio_segment.size(-1) >= sr / 3:  # Ignore segments shorter than 0.33 seconds
+                if audio_segment.size(-1) >= sr / 3:
                     torchaudio.save(absoulte_path, audio_segment, sr)
                     metadata["audio_file"].append(output_filename)
                     metadata["text"].append(sentence)
                     metadata["speaker_name"].append(speaker_name)
                 
-                sentence = "" # Reset sentence after processing
+                sentence = ""
 
     df = pandas.DataFrame(metadata)
     df = df.sample(frac=1).reset_index(drop=True)
@@ -143,10 +141,12 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
     df_train = df[num_val_samples:]
 
     train_metadata_path = os.path.join(out_path, "metadata_train.csv")
-    df_train.sort_values('audio_file').to_csv(train_metadata_path, sep="|", index=False, header=False)
+    # FIX: Set header=True to include column names required by the Coqui formatter.
+    df_train.sort_values('audio_file').to_csv(train_metadata_path, sep="|", index=False, header=True)
 
     eval_metadata_path = os.path.join(out_path, "metadata_eval.csv")
-    df_eval.sort_values('audio_file').to_csv(eval_metadata_path, sep="|", index=False, header=False)
+    # FIX: Set header=True for the evaluation file as well.
+    df_eval.sort_values('audio_file').to_csv(eval_metadata_path, sep="|", index=False, header=True)
 
     del asr_model, df_train, df_eval, df, metadata
     gc.collect()
@@ -164,7 +164,6 @@ def preprocess_dataset(audio_files, language, out_path, progress=None):
         return "You should provide one or multiple audio files!", "", ""
     
     try:
-        # Get absolute paths of the uploaded files
         audio_file_paths = [f.name for f in audio_files]
         train_meta, eval_meta, audio_total_size = format_audio_list(
             audio_file_paths, target_language=language, out_path=dataset_out_path, gradio_progress=progress
@@ -196,7 +195,6 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
         meta_file_train=os.path.basename(train_csv), meta_file_val=os.path.basename(eval_csv), language=language
     )
     
-    # Download original model files if they don't exist
     dvae_checkpoint_link = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/dvae.pth"
     mel_norm_link = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/mel_stats.pth"
     tokenizer_file_link = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/vocab.json"
@@ -227,32 +225,15 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
     audio_config = XttsAudioConfig(sample_rate=22050, dvae_sample_rate=22050, output_sample_rate=24000)
     
     config = GPTTrainerConfig(
-        run_name=RUN_NAME,
-        project_name=PROJECT_NAME,
-        run_description="GPT XTTS fine-tuning",
-        dashboard_logger="tensorboard",
-        logger_uri=None,
-        output_path=OUT_PATH,
-        epochs=num_epochs,
-        model_args=model_args,
-        audio=audio_config,
-        batch_size=batch_size, 
-        eval_batch_size=batch_size,
-        batch_group_size=48,
-        num_loader_workers=8,
-        eval_split_max_size=256,
-        print_step=50,
-        plot_step=100,
-        log_model_step=100,
-        save_step=1000,
-        save_n_checkpoints=1,
-        save_checkpoints=True,
-        print_eval=False,
-        optimizer="AdamW",
-        optimizer_wd_only_on_weights=True,
+        run_name=RUN_NAME, project_name=PROJECT_NAME, run_description="GPT XTTS fine-tuning",
+        dashboard_logger="tensorboard", logger_uri=None, output_path=OUT_PATH,
+        epochs=num_epochs, model_args=model_args, audio=audio_config,
+        batch_size=batch_size, eval_batch_size=batch_size, batch_group_size=48,
+        num_loader_workers=8, eval_split_max_size=256, print_step=50, plot_step=100,
+        log_model_step=100, save_step=1000, save_n_checkpoints=1, save_checkpoints=True,
+        print_eval=False, optimizer="AdamW", optimizer_wd_only_on_weights=True,
         optimizer_params={"betas": [0.9, 0.96], "eps": 1e-8, "weight_decay": 1e-2},
-        lr=5e-06,
-        lr_scheduler="MultiStepLR",
+        lr=5e-06, lr_scheduler="MultiStepLR",
         lr_scheduler_params={"milestones": [50000 * 18, 150000 * 18, 300000 * 18], "gamma": 0.5, "last_epoch": -1},
         test_sentences=[],
     )
@@ -265,15 +246,11 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
     )
     trainer = Trainer(
         TrainerArgs(grad_accum_steps=grad_acumm, continue_path=None, restore_path=None),
-        config,
-        output_path=OUT_PATH,
-        model=model,
-        train_samples=train_samples,
-        eval_samples=eval_samples,
+        config, output_path=OUT_PATH, model=model,
+        train_samples=train_samples, eval_samples=eval_samples,
     )
     trainer.fit()
 
-    # Find a long audio file to use as a speaker reference for inference
     dataset_path = os.path.join(os.path.dirname(train_csv), "wavs")
     samples_len = [os.path.getsize(os.path.join(dataset_path, item["audio_file"])) for item in train_samples]
     longest_audio_idx = samples_len.index(max(samples_len))
@@ -303,7 +280,6 @@ def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acum
         error = traceback.format_exc()
         return f"Training failed. Check console for error: {error}", "", "", "", ""
 
-    # Copy original config and vocab to the experiment path for portability
     shutil.copy(config_path, exp_path)
     shutil.copy(vocab_file, exp_path)
 
@@ -312,7 +288,7 @@ def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acum
     clear_gpu_cache()
     return "Model training done!", os.path.join(exp_path, "config.json"), os.path.join(exp_path, "vocab.json"), ft_xtts_checkpoint, speaker_wav
 
-# --- Inference Backend (from xtts_demo.py) ---
+# --- Inference Backend ---
 def load_model(xtts_checkpoint, xtts_config, xtts_vocab):
     """Loads the fine-tuned XTTS model for inference."""
     global XTTS_MODEL
@@ -348,15 +324,11 @@ def run_tts(lang, tts_text, speaker_audio_file):
         )
         
         out = XTTS_MODEL.inference(
-            text=tts_text,
-            language=lang,
-            gpt_cond_latent=gpt_cond_latent,
-            speaker_embedding=speaker_embedding,
-            temperature=XTTS_MODEL.config.temperature,
+            text=tts_text, language=lang, gpt_cond_latent=gpt_cond_latent,
+            speaker_embedding=speaker_embedding, temperature=XTTS_MODEL.config.temperature,
             length_penalty=XTTS_MODEL.config.length_penalty,
             repetition_penalty=XTTS_MODEL.config.repetition_penalty,
-            top_k=XTTS_MODEL.config.top_k,
-            top_p=XTTS_MODEL.config.top_p,
+            top_k=XTTS_MODEL.config.top_k, top_p=XTTS_MODEL.config.top_p,
         )
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fp:
