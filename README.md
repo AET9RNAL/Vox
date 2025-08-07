@@ -2,13 +2,14 @@
 
 A comprehensive toolkit for audio transcription and voice synthesis featuring Coqui XTTS-v2 and Higgs Audio TTS models.
 Features
+
 🎙️ Whisper Transcription
 
-Multiple transcription engines (OpenAI Whisper, Stable-TS)
-Advanced post-processing with segmentation, merging, and refinement
-Multiple output formats (.txt, .srt, .vtt, .json)
-Direct pipeline integration with TTS generation
-Configuration management for reproducible workflows
+1. Multiple transcription engines (OpenAI Whisper, Stable-TS)
+2. Advanced post-processing with segmentation, merging, and refinement
+3. Multiple output formats (.txt, .srt, .vtt, .json)
+4. Direct pipeline integration with TTS generation
+5. Configuration management for reproducible workflows
 
 🗣️ Coqui XTTS Voice Generation
 
