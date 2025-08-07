@@ -354,13 +354,21 @@ def autofill_ft_paths(output_base_path: str):
     return c, v, ckpt, spk, msg
 
 
+
 def load_or_discover_model(xtts_checkpoint: str, xtts_config: str, xtts_vocab: str, output_base_path: str):
     """
     Load using explicit paths if provided; otherwise try to discover latest run under output_base_path.
+    Provides a valid dummy 'speakers_xtts.pth' to satisfy XTTS's internal path logic on Windows.
     """
     global XTTS_MODEL
     clear_gpu_cache()
 
+    # Normalize Nones to empty strings for consistency
+    xtts_checkpoint = xtts_checkpoint or ""
+    xtts_config = xtts_config or ""
+    xtts_vocab = xtts_vocab or ""
+
+    # If any missing, try discovery
     if not all([xtts_checkpoint, xtts_config, xtts_vocab]):
         if not output_base_path:
             return "Error: Missing paths and Output Path is not set."
@@ -369,6 +377,27 @@ def load_or_discover_model(xtts_checkpoint: str, xtts_config: str, xtts_vocab: s
         if not all([c, v, ckpt]) or not all(os.path.exists(p) for p in (c, v, ckpt)):
             return "Error: Missing one or more required paths (checkpoint, config, vocab). No run discovered."
         xtts_config, xtts_vocab, xtts_checkpoint = c, v, ckpt
+
+    # Final validation
+    if not (os.path.exists(xtts_config) and os.path.exists(xtts_vocab) and os.path.exists(xtts_checkpoint)):
+        return "Error: One or more selected files do not exist on disk."
+
+    # Prepare a safe speakers file path in the checkpoint directory
+    checkpoint_dir = os.path.dirname(xtts_checkpoint) or os.getcwd()
+    safe_speakers_path = os.path.join(checkpoint_dir, "speakers_xtts.pth")
+    try:
+        if not os.path.exists(safe_speakers_path):
+            # Create a tiny valid torch object so torch.load won't choke if accessed
+            torch.save({}, safe_speakers_path)
+    except Exception:
+        # Fallback: put it next to the config file
+        fallback_dir = os.path.dirname(xtts_config) or os.getcwd()
+        safe_speakers_path = os.path.join(fallback_dir, "speakers_xtts.pth")
+        try:
+            torch.save({}, safe_speakers_path)
+        except Exception:
+            # Last resort: use os.devnull just to provide a truthy path (XTTS may not need to load it)
+            safe_speakers_path = os.devnull
 
     config = XttsConfig()
     config.load_json(xtts_config)
@@ -379,7 +408,7 @@ def load_or_discover_model(xtts_checkpoint: str, xtts_config: str, xtts_vocab: s
         config,
         checkpoint_path=xtts_checkpoint,
         vocab_path=xtts_vocab,
-        speaker_file_path="",
+        speaker_file_path=safe_speakers_path,
         use_deepspeed=False,
     )
 
@@ -388,6 +417,7 @@ def load_or_discover_model(xtts_checkpoint: str, xtts_config: str, xtts_vocab: s
 
     print("Model loaded successfully!")
     return "Model Loaded!"
+
 def load_model(xtts_checkpoint, xtts_config, xtts_vocab):
     """Loads the fine-tuned XTTS model for inference."""
     global XTTS_MODEL
