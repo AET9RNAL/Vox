@@ -1497,7 +1497,7 @@ def create_gradio_ui():
                         gr.Markdown("Ensure the Train and Eval CSV paths are filled from the previous step.")
                         ft_num_epochs = gr.Slider(label="Number of Epochs", minimum=1, maximum=100, step=1, value=10)
                         ft_batch_size = gr.Slider(label="Batch Size", minimum=2, maximum=512, step=1, value=4)
-                        ft_grad_acumm = gr.Slider(label="Gradient Accumulation Steps", minimum=2, maximum=128, step=1, value=1)
+                        ft_grad_acumm = gr.Slider(label="Gradient Accumulation Steps", minimum=1, maximum=128, step=1, value=2)
                         ft_max_audio_length = gr.Slider(label="Max Permitted Audio Length (s)", minimum=2, maximum=20, step=1, value=11)
                         ft_train_btn = gr.Button("Step 2: Run Training", variant="primary")
                         ft_train_status = gr.Label(label="Progress")

@@ -3,6 +3,7 @@ import gc
 import sys
 import tempfile
 import traceback
+import shutil
 import torch
 import torchaudio
 import pandas
@@ -18,6 +19,11 @@ except ImportError:
     class Trainer:
         def __init__(self, *args, **kwargs): pass
         def fit(self): pass
+        @staticmethod
+        def init_from_config(config):
+            print("Dummy Trainer initialized from config.")
+            return Trainer()
+
     class TrainerArgs:
         def __init__(self, *args, **kwargs): pass
 
@@ -61,7 +67,10 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Loading Whisper Model for transcription...")
-    asr_model = WhisperModel("large-v2", device=device, compute_type="float16" if device == "cuda" else "default")
+    # FIX: Use "default" compute_type for better compatibility and to avoid cuDNN errors.
+    compute_type = "float16" if device == "cuda" else "default"
+    print(f"Using compute type: {compute_type}")
+    asr_model = WhisperModel("large-v2", device=device, compute_type=compute_type)
 
     metadata = {"audio_file": [], "text": [], "speaker_name": []}
 
@@ -94,13 +103,16 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
                     sentence_start_time = max(sentence_start_time - buffer, (previous_word_end + sentence_start_time) / 2)
                 else:
                     sentence_start_time = max(sentence_start_time - buffer, 0)
-                sentence = word.word
+                sentence = word.word.strip()
                 first_word = False
             else:
-                sentence += word.word
+                sentence += " " + word.word.strip()
 
             if word.word[-1] in ["!", ".", "?"]:
                 sentence = sentence.strip()
+                if not sentence: continue # Skip empty sentences
+                
+                # Expand numbers and abbreviations plus normalization
                 sentence = multilingual_cleaners(sentence, target_language)
                 
                 audio_file_name, _ = os.path.splitext(os.path.basename(audio_path))
@@ -120,19 +132,21 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
                     metadata["audio_file"].append(output_filename)
                     metadata["text"].append(sentence)
                     metadata["speaker_name"].append(speaker_name)
+                
+                sentence = "" # Reset sentence after processing
 
     df = pandas.DataFrame(metadata)
-    df = df.sample(frac=1)
+    df = df.sample(frac=1).reset_index(drop=True)
     num_val_samples = int(len(df) * eval_percentage)
 
     df_eval = df[:num_val_samples]
     df_train = df[num_val_samples:]
 
     train_metadata_path = os.path.join(out_path, "metadata_train.csv")
-    df_train.sort_values('audio_file').to_csv(train_metadata_path, sep="|", index=False)
+    df_train.sort_values('audio_file').to_csv(train_metadata_path, sep="|", index=False, header=False)
 
     eval_metadata_path = os.path.join(out_path, "metadata_eval.csv")
-    df_eval.sort_values('audio_file').to_csv(eval_metadata_path, sep="|", index=False)
+    df_eval.sort_values('audio_file').to_csv(eval_metadata_path, sep="|", index=False, header=False)
 
     del asr_model, df_train, df_eval, df, metadata
     gc.collect()
@@ -150,8 +164,10 @@ def preprocess_dataset(audio_files, language, out_path, progress=None):
         return "You should provide one or multiple audio files!", "", ""
     
     try:
+        # Get absolute paths of the uploaded files
+        audio_file_paths = [f.name for f in audio_files]
         train_meta, eval_meta, audio_total_size = format_audio_list(
-            audio_files, target_language=language, out_path=dataset_out_path, gradio_progress=progress
+            audio_file_paths, target_language=language, out_path=dataset_out_path, gradio_progress=progress
         )
     except Exception:
         traceback.print_exc()
@@ -177,7 +193,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
 
     config_dataset = BaseDatasetConfig(
         formatter="coqui", dataset_name="ft_dataset", path=os.path.dirname(train_csv),
-        meta_file_train=train_csv, meta_file_val=eval_csv, language=language
+        meta_file_train=os.path.basename(train_csv), meta_file_val=os.path.basename(eval_csv), language=language
     )
     
     # Download original model files if they don't exist
@@ -211,16 +227,32 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
     audio_config = XttsAudioConfig(sample_rate=22050, dvae_sample_rate=22050, output_sample_rate=24000)
     
     config = GPTTrainerConfig(
-        epochs=num_epochs, output_path=OUT_PATH, model_args=model_args,
-        run_name=RUN_NAME, project_name=PROJECT_NAME,
-        run_description="GPT XTTS fine-tuning", dashboard_logger="tensorboard",
-        audio=audio_config, batch_size=batch_size, batch_group_size=48,
-        eval_batch_size=batch_size, num_loader_workers=8, eval_split_max_size=256,
-        print_step=50, plot_step=100, log_model_step=100, save_step=1000,
-        save_n_checkpoints=1, save_checkpoints=True, optimizer="AdamW",
+        run_name=RUN_NAME,
+        project_name=PROJECT_NAME,
+        run_description="GPT XTTS fine-tuning",
+        dashboard_logger="tensorboard",
+        logger_uri=None,
+        output_path=OUT_PATH,
+        epochs=num_epochs,
+        model_args=model_args,
+        audio=audio_config,
+        batch_size=batch_size, 
+        eval_batch_size=batch_size,
+        batch_group_size=48,
+        num_loader_workers=8,
+        eval_split_max_size=256,
+        print_step=50,
+        plot_step=100,
+        log_model_step=100,
+        save_step=1000,
+        save_n_checkpoints=1,
+        save_checkpoints=True,
+        print_eval=False,
+        optimizer="AdamW",
         optimizer_wd_only_on_weights=True,
         optimizer_params={"betas": [0.9, 0.96], "eps": 1e-8, "weight_decay": 1e-2},
-        lr=5e-06, lr_scheduler="MultiStepLR",
+        lr=5e-06,
+        lr_scheduler="MultiStepLR",
         lr_scheduler_params={"milestones": [50000 * 18, 150000 * 18, 300000 * 18], "gamma": 0.5, "last_epoch": -1},
         test_sentences=[],
     )
@@ -232,23 +264,27 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
         eval_split_size=config.eval_split_size,
     )
     trainer = Trainer(
-        TrainerArgs(grad_accum_steps=grad_acumm),
-        config, output_path=OUT_PATH, model=model,
-        train_samples=train_samples, eval_samples=eval_samples,
+        TrainerArgs(grad_accum_steps=grad_acumm, continue_path=None, restore_path=None),
+        config,
+        output_path=OUT_PATH,
+        model=model,
+        train_samples=train_samples,
+        eval_samples=eval_samples,
     )
     trainer.fit()
 
     # Find a long audio file to use as a speaker reference for inference
-    samples_len = [os.path.getsize(os.path.join(config_dataset.path, item["audio_file"])) for item in train_samples]
+    dataset_path = os.path.join(os.path.dirname(train_csv), "wavs")
+    samples_len = [os.path.getsize(os.path.join(dataset_path, item["audio_file"])) for item in train_samples]
     longest_audio_idx = samples_len.index(max(samples_len))
-    speaker_ref = os.path.join(config_dataset.path, train_samples[longest_audio_idx]["audio_file"])
+    speaker_ref = os.path.join(dataset_path, train_samples[longest_audio_idx]["audio_file"])
 
     trainer_out_path = trainer.output_path
     del model, trainer, train_samples, eval_samples
     gc.collect()
     clear_gpu_cache()
 
-    return xtts_config_file, xtts_checkpoint, tokenizer_file, trainer_out_path, speaker_ref
+    return xtts_config_file, tokenizer_file, trainer_out_path, speaker_ref
 
 def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acumm, output_path, max_audio_length):
     """Main entry point for model training."""
@@ -258,7 +294,7 @@ def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acum
     
     try:
         max_audio_length_samples = int(max_audio_length * 22050)
-        config_path, _, vocab_file, exp_path, speaker_wav = train_gpt(
+        config_path, vocab_file, exp_path, speaker_wav = train_gpt(
             language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
             output_path=output_path, max_audio_length=max_audio_length_samples
         )

@@ -4,6 +4,7 @@ REM  Combined script to set up the Conda environment, install dependencies,
 REM  download models, and launch the Gradio WebUI.
 REM
 REM  - Installs Python dependencies from requirements.txt
+REM  - Installs CUDA, cuDNN, and PyTorch
 REM  - Installs Higgs Audio
 REM  - Installs Coqui XTTS-v2 Model
 REM ============================================================================
@@ -64,15 +65,15 @@ IF %ERRORLEVEL% NEQ 0 (
     echo [INFO] Environment '%ENV_NAME%' already exists.
 )
 
-REM --- Install PyTorch with CUDA support ---
-echo [INFO] Installing PyTorch with CUDA support. This is a large download and may take some time...
-CALL conda run -n %ENV_NAME% conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
+REM --- Install PyTorch with CUDA support using the helper script ---
+echo [INFO] Running the CUDA/cuDNN installation script...
+CALL install_cuda.bat
 IF %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Failed to install PyTorch with CUDA. Please check your internet connection and NVIDIA drivers.
+    echo [ERROR] The CUDA installation script failed. Aborting setup.
     pause
     exit /b 1
 )
-echo [INFO] PyTorch installed successfully.
+echo [INFO] CUDA/cuDNN installation complete.
 
 REM --- Clone Higgs Audio repo if it doesn't exist ---
 IF NOT EXIST "%HIGGS_AUDIO_DIR%" (
