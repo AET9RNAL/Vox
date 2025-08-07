@@ -7,8 +7,10 @@ import shutil
 import torch
 import torchaudio
 import pandas
+import subprocess
 from faster_whisper import WhisperModel
 from tqdm import tqdm
+import gradio as gr
 
 # Check if 'trainer' is available, if not, define a dummy class to avoid import errors
 # In a real environment, the 'trainer' package from TTS should be installed.
@@ -17,7 +19,8 @@ try:
 except ImportError:
     print("Warning: 'trainer' could not be imported. Using dummy classes. Ensure TTS is installed for full functionality.")
     class Trainer:
-        def __init__(self, *args, **kwargs): pass
+        def __init__(self, *args, **kwargs):
+            self.output_path = "dummy_trainer_output"
         def fit(self): pass
         @staticmethod
         def init_from_config(config):
@@ -141,11 +144,9 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
     df_train = df[num_val_samples:]
 
     train_metadata_path = os.path.join(out_path, "metadata_train.csv")
-    # FIX: Set header=True to include column names required by the Coqui formatter.
     df_train.sort_values('audio_file').to_csv(train_metadata_path, sep="|", index=False, header=True)
 
     eval_metadata_path = os.path.join(out_path, "metadata_eval.csv")
-    # FIX: Set header=True for the evaluation file as well.
     df_eval.sort_values('audio_file').to_csv(eval_metadata_path, sep="|", index=False, header=True)
 
     del asr_model, df_train, df_eval, df, metadata
@@ -251,12 +252,13 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
     )
     trainer.fit()
 
+    trainer_out_path = trainer.output_path
+    
     dataset_path = os.path.join(os.path.dirname(train_csv), "wavs")
     samples_len = [os.path.getsize(os.path.join(dataset_path, item["audio_file"])) for item in train_samples]
     longest_audio_idx = samples_len.index(max(samples_len))
     speaker_ref = os.path.join(dataset_path, train_samples[longest_audio_idx]["audio_file"])
 
-    trainer_out_path = trainer.output_path
     del model, trainer, train_samples, eval_samples
     gc.collect()
     clear_gpu_cache()
@@ -267,7 +269,7 @@ def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acum
     """Main entry point for model training."""
     clear_gpu_cache()
     if not train_csv or not eval_csv:
-        return "You need to run the data processing step first.", "", "", "", ""
+        return "You need to run the data processing step first.", "", "", "", "", None
     
     try:
         max_audio_length_samples = int(max_audio_length * 22050)
@@ -278,7 +280,7 @@ def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acum
     except Exception:
         traceback.print_exc()
         error = traceback.format_exc()
-        return f"Training failed. Check console for error: {error}", "", "", "", ""
+        return f"Training failed. Check console for error: {error}", "", "", "", "", None
 
     shutil.copy(config_path, exp_path)
     shutil.copy(vocab_file, exp_path)
@@ -286,9 +288,106 @@ def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acum
     ft_xtts_checkpoint = os.path.join(exp_path, "best_model.pth")
     print("Model training finished successfully!")
     clear_gpu_cache()
-    return "Model training done!", os.path.join(exp_path, "config.json"), os.path.join(exp_path, "vocab.json"), ft_xtts_checkpoint, speaker_wav
+    
+    log_dir = os.path.dirname(exp_path)
+    return "Model training done!", os.path.join(exp_path, "config.json"), os.path.join(exp_path, "vocab.json"), ft_xtts_checkpoint, speaker_wav, log_dir
+
+def launch_tensorboard(log_dir):
+    """Launches TensorBoard in a new process."""
+    if not log_dir or not os.path.exists(log_dir):
+        return "Log directory not found. Please run training first.", gr.update(visible=False)
+    
+    command = f'tensorboard --logdir="{log_dir}"'
+    print(f"Launching TensorBoard with command: {command}")
+
+    subprocess.Popen(f'start cmd /k "{command}"', shell=True)
+    
+    url = "http://localhost:6006/"
+    status_message = f"TensorBoard is starting in a new window. Command executed: {command}"
+    url_markdown = f"If it doesn't open automatically, [click here to open TensorBoard]({url})."
+    
+    return status_message, gr.update(value=url_markdown, visible=True)
+
 
 # --- Inference Backend ---
+
+
+# --- Auto-discovery helpers for fine-tuned runs ---
+import glob
+from typing import Tuple
+
+def _discover_latest_run(base_training_dir: str) -> Tuple[str, str, str, str]:
+    """
+    Return (config_path, vocab_path, checkpoint_path, speaker_ref) for the most recent run.
+    Expects runs like: <base>/GPT_XTTS_FT-.../
+    """
+    pattern = os.path.join(base_training_dir, "GPT_XTTS_FT-*")
+    candidates = glob.glob(pattern)
+    if not candidates:
+        return "", "", "", ""
+    latest = max(candidates, key=os.path.getmtime)
+    config_path = os.path.join(latest, "config.json")
+    vocab_path = os.path.join(latest, "vocab.json")
+    checkpoint_path = os.path.join(latest, "best_model.pth")
+    speaker_ref = ""
+    for cand in ("speaker_ref.wav", "speaker.wav", "reference.wav"):
+        maybe = os.path.join(latest, cand)
+        if os.path.exists(maybe):
+            speaker_ref = maybe
+            break
+    return config_path, vocab_path, checkpoint_path, speaker_ref
+
+
+def autofill_ft_paths(output_base_path: str):
+    """
+    Gradio callback: given Output Path (e.g., xtts_ft_training),
+    find latest run under <out>/run/training and return paths.
+    Returns: config, vocab, checkpoint, speaker_ref, message
+    """
+    if not output_base_path:
+        return "", "", "", "", "Set 'Output Path' first."
+    base_training_dir = os.path.join(output_base_path, "run", "training")
+    c, v, ckpt, spk = _discover_latest_run(base_training_dir)
+    if not all([c, v, ckpt]) or not all(os.path.exists(p) for p in (c, v, ckpt)):
+        return "", "", "", "", f"No completed runs found under: {base_training_dir}"
+    msg = f"Found latest run:\n{os.path.dirname(c)}"
+    return c, v, ckpt, spk, msg
+
+
+def load_or_discover_model(xtts_checkpoint: str, xtts_config: str, xtts_vocab: str, output_base_path: str):
+    """
+    Load using explicit paths if provided; otherwise try to discover latest run under output_base_path.
+    """
+    global XTTS_MODEL
+    clear_gpu_cache()
+
+    if not all([xtts_checkpoint, xtts_config, xtts_vocab]):
+        if not output_base_path:
+            return "Error: Missing paths and Output Path is not set."
+        base_training_dir = os.path.join(output_base_path, "run", "training")
+        c, v, ckpt, _ = _discover_latest_run(base_training_dir)
+        if not all([c, v, ckpt]) or not all(os.path.exists(p) for p in (c, v, ckpt)):
+            return "Error: Missing one or more required paths (checkpoint, config, vocab). No run discovered."
+        xtts_config, xtts_vocab, xtts_checkpoint = c, v, ckpt
+
+    config = XttsConfig()
+    config.load_json(xtts_config)
+    XTTS_MODEL = Xtts.init_from_config(config)
+
+    print("Loading fine-tuned XTTS model (auto-discovery)...")
+    XTTS_MODEL.load_checkpoint(
+        config,
+        checkpoint_path=xtts_checkpoint,
+        vocab_path=xtts_vocab,
+        speaker_file_path="",
+        use_deepspeed=False,
+    )
+
+    if torch.cuda.is_available():
+        XTTS_MODEL.cuda()
+
+    print("Model loaded successfully!")
+    return "Model Loaded!"
 def load_model(xtts_checkpoint, xtts_config, xtts_vocab):
     """Loads the fine-tuned XTTS model for inference."""
     global XTTS_MODEL
@@ -302,7 +401,14 @@ def load_model(xtts_checkpoint, xtts_config, xtts_vocab):
     XTTS_MODEL = Xtts.init_from_config(config)
     
     print("Loading fine-tuned XTTS model...")
-    XTTS_MODEL.load_checkpoint(config, checkpoint_path=xtts_checkpoint, vocab_path=xtts_vocab, use_deepspeed=False)
+    # FIX: Explicitly set speaker_file_path to prevent an error when loading fine-tuned models.
+    XTTS_MODEL.load_checkpoint(
+        config, 
+        checkpoint_path=xtts_checkpoint, 
+        vocab_path=xtts_vocab, 
+        speaker_file_path="",  # This prevents the library from looking for a non-existent file
+        use_deepspeed=False
+    )
     
     if torch.cuda.is_available():
         XTTS_MODEL.cuda()

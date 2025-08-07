@@ -37,7 +37,12 @@ import stable_whisper
 import stable_whisper.audio
 
 # Local Backend Import for Fine-Tuning
-import Coqui_XTTSv2_train_module as train_module
+try:
+    import Coqui_XTTSv2_train_module as train_module
+except ImportError:
+    print("WARNING: Coqui_XTTSv2_train_module.py not found. The Fine-Tuning tab will be disabled.")
+    train_module = None
+
 
 # Higgs Audio Imports with enhanced path handling
 HIGGS_AVAILABLE = False
@@ -1505,8 +1510,16 @@ def create_gradio_ui():
                         ft_xtts_vocab = gr.Textbox(label="Fine-tuned Vocab Path", interactive=False)
                         ft_xtts_checkpoint = gr.Textbox(label="Fine-tuned Checkpoint Path", interactive=False)
                         ft_speaker_reference = gr.Textbox(label="Speaker Reference Audio", interactive=False)
+                        with gr.Group(visible=False) as ft_tensorboard_group:
+                            ft_tensorboard_btn = gr.Button("Launch TensorBoard")
+                            ft_tensorboard_status = gr.Textbox(label="TensorBoard Status", interactive=False)
+                            ft_tensorboard_url = gr.Markdown(visible=False)
                         
                     with gr.Tab("3 - Inference"):
+                        
+                        with gr.Row():
+                            ft_autofill_btn = gr.Button("Find latest fine-tuned run", variant="secondary")
+                            ft_autofill_status = gr.Markdown(visible=False)
                         gr.Markdown("Load the fine-tuned model using the paths from the previous step.")
                         with gr.Row():
                             with gr.Column():
@@ -1756,26 +1769,52 @@ def create_gradio_ui():
         refresh_library_btn_tts.click(fn=refresh_coqui_library, outputs=[tts_library_voice, lib_voice_list])
 
         # Coqui Fine-Tuning Logic
-        ft_preprocess_btn.click(
-            fn=train_module.preprocess_dataset,
-            inputs=[ft_upload_files, ft_language, ft_out_path],
-            outputs=[ft_preprocess_status, ft_train_csv, ft_eval_csv]
-        )
-        ft_train_btn.click(
-            fn=train_module.train_model,
-            inputs=[ft_language, ft_train_csv, ft_eval_csv, ft_num_epochs, ft_batch_size, ft_grad_acumm, ft_out_path, ft_max_audio_length],
-            outputs=[ft_train_status, ft_xtts_config, ft_xtts_vocab, ft_xtts_checkpoint, ft_speaker_reference]
-        )
-        ft_load_btn.click(
-            fn=train_module.load_model,
-            inputs=[ft_xtts_checkpoint, ft_xtts_config, ft_xtts_vocab],
-            outputs=[ft_load_status]
-        )
-        ft_tts_btn.click(
-            fn=train_module.run_tts,
-            inputs=[ft_tts_language, ft_tts_text, ft_speaker_reference],
-            outputs=[ft_tts_status, ft_tts_output_audio, ft_reference_audio_display]
-        )
+        if train_module:
+            ft_log_dir_state = gr.State()
+
+            def show_tensorboard_button(log_dir):
+                if log_dir and os.path.exists(log_dir):
+                    return gr.update(visible=True)
+                return gr.update(visible=False)
+
+            ft_preprocess_btn.click(
+                fn=train_module.preprocess_dataset,
+                inputs=[ft_upload_files, ft_language, ft_out_path],
+                outputs=[ft_preprocess_status, ft_train_csv, ft_eval_csv]
+            )
+            ft_train_btn.click(
+                fn=train_module.train_model,
+                inputs=[ft_language, ft_train_csv, ft_eval_csv, ft_num_epochs, ft_batch_size, ft_grad_acumm, ft_out_path, ft_max_audio_length],
+                outputs=[ft_train_status, ft_xtts_config, ft_xtts_vocab, ft_xtts_checkpoint, ft_speaker_reference, ft_log_dir_state]
+            ).then(
+                fn=show_tensorboard_button,
+                inputs=[ft_log_dir_state],
+                outputs=[ft_tensorboard_group]
+            )
+            ft_tensorboard_btn.click(
+                fn=train_module.launch_tensorboard,
+                inputs=[ft_log_dir_state],
+                outputs=[ft_tensorboard_status, ft_tensorboard_url]
+            ).then(
+                fn=lambda: gr.update(visible=True),
+                outputs=[ft_tensorboard_status]
+            )
+            
+            ft_autofill_btn.click(
+                fn=train_module.autofill_ft_paths,
+                inputs=[ft_out_path],
+                outputs=[ft_xtts_config, ft_xtts_vocab, ft_xtts_checkpoint, ft_speaker_reference, ft_autofill_status]
+            )
+            ft_load_btn.click(
+                fn=train_module.load_or_discover_model,
+                inputs=[ft_xtts_checkpoint, ft_xtts_config, ft_xtts_vocab, ft_out_path],
+                outputs=[ft_load_status]
+            )
+            ft_tts_btn.click(
+                fn=train_module.run_tts,
+                inputs=[ft_tts_language, ft_tts_text, ft_speaker_reference],
+                outputs=[ft_tts_status, ft_tts_output_audio, ft_reference_audio_display]
+            )
 
         # Config Refresh Logic
         def refresh_all_config_lists():
