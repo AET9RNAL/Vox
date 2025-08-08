@@ -574,7 +574,7 @@ def ft_inference_generate(
 # Output setup
         output_dir = "gradio_outputs"
         os.makedirs(output_dir, exist_ok=True)
-        mode_tag = input_mode.lower().replace(" ", "_").replace("(", "").replace(")", "").replace(".", "")
+        mode_tag = re.sub(r"[^a-z0-9_]+", "_", input_mode.lower())
         output_path = os.path.join(output_dir, f"ft_inference_{mode_tag}.{ 'wav' }")
 
         SAMPLE_RATE = 24000
@@ -616,6 +616,7 @@ def ft_inference_generate(
         if not timed_generation or (timed_generation and not strict_timing):
             final_audio = np.concatenate(all_audio_chunks) if all_audio_chunks else np.array([], dtype=np.float32)
 
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         sf.write(output_path, final_audio, SAMPLE_RATE)
         return output_path, f"✅ Success! Saved to {output_path}"
 
