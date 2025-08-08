@@ -11,6 +11,7 @@ import subprocess
 from faster_whisper import WhisperModel
 from tqdm import tqdm
 import gradio as gr
+import re
 
 # Check if 'trainer' is available, if not, define a dummy class to avoid import errors
 # In a real environment, the 'trainer' package from TTS should be installed.
@@ -476,3 +477,149 @@ def run_tts(lang, tts_text, speaker_audio_file):
     except Exception as e:
         traceback.print_exc()
         return f"Inference failed: {e}", None, None
+
+# === Fine-tuning Inference Helpers ===
+import srt
+
+def _parse_srt_or_vtt(path):
+    """Parses SRT or VTT file, supporting both ',' and '.' in timestamps."""
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    # Normalize decimal separator in timestamps to comma
+    normalized = re.sub(r'(\d{2}:\d{2}:\d{2})\.(\d{3})', r'\1,\2', content)
+    normalized = re.sub(r'(\d{2}:\d{2}:\d{2}),(\d{3})', r'\1,\2', normalized)  # ensure commas are preserved
+    return list(srt.parse(normalized))
+
+def _parse_text_as_srt(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        lines = [line.strip() for line in f if line.strip()]
+    return [srt.Subtitle(index=i, start=timedelta(0), end=timedelta(0), content=line) for i, line in enumerate(lines, 1)]
+
+def ft_inference_generate(
+    ui_text_entry,
+    txt_file_input,
+    srt_vtt_file_input,
+    input_mode,
+    srt_timing_mode,
+    language,
+    speaker_wav,
+    progress=gr.Progress()
+):
+    """
+    Runs fine-tuned XTTS inference in 3 modes:
+      1. UI Text Entry
+      2. Regular Text File (.txt)
+      3. SRT/VTT Subtitle File
+    """
+    try:
+        from datetime import timedelta
+        import numpy as np
+        import soundfile as sf
+        import srt
+
+        global XTTS_MODEL
+        if XTTS_MODEL is None:
+            return None, "❌ Load the fine-tuned XTTS model first."
+
+        # Determine input source & parsing logic
+        segments = []
+        timed_generation = False
+        strict_timing = False
+
+        if input_mode == "UI Text Entry":
+            if not ui_text_entry or not ui_text_entry.strip():
+                return None, "❌ Please enter some text."
+            # One subtitle-like segment starting at t=0
+            segments = [srt.Subtitle(index=1, start=timedelta(0), end=timedelta(0), content=ui_text_entry.strip())]
+
+        elif input_mode == "Regular Text File (.txt)":
+            if not txt_file_input:
+                return None, "❌ Please upload a .txt file."
+            file_path = txt_file_input.name if hasattr(txt_file_input, 'name') else txt_file_input
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = [line.strip() for line in f if line.strip()]
+            segments = [srt.Subtitle(index=i, start=timedelta(0), end=timedelta(0), content=line)
+                        for i, line in enumerate(lines, 1)]
+
+        elif input_mode == "SRT/VTT Subtitle File":
+            if not srt_vtt_file_input:
+                return None, "❌ Please upload an .srt or .vtt file."
+            file_path = srt_vtt_file_input.name if hasattr(srt_vtt_file_input, 'name') else srt_vtt_file_input
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            # Normalize separators for parsing
+            normalized = re.sub(r'(\d{2}:\d{2}:\d{2})\.(\d{3})', r'\1,\2', content)
+            segments = list(srt.parse(normalized))
+            timed_generation = True
+            strict_timing = (srt_timing_mode == "Strict (Cut audio to fit)")
+
+        if not segments:
+            return None, "🤷 No content found."
+
+        # Validate speaker_wav
+        if not speaker_wav:
+            return None, "❌ Please provide a speaker reference WAV file."
+        speaker_wav_path = speaker_wav.name if hasattr(speaker_wav, 'name') else speaker_wav
+        if not os.path.exists(speaker_wav_path):
+            return None, f"❌ Speaker reference not found: {speaker_wav_path}"
+
+        
+        # Compute conditioning latents once for this session
+        gpt_cond_latent, speaker_embedding = XTTS_MODEL.get_conditioning_latents(
+            audio_path=speaker_wav_path,
+            gpt_cond_len=XTTS_MODEL.config.gpt_cond_len,
+            max_ref_length=XTTS_MODEL.config.max_ref_len,
+            sound_norm_refs=XTTS_MODEL.config.sound_norm_refs,
+        )
+# Output setup
+        output_dir = "gradio_outputs"
+        os.makedirs(output_dir, exist_ok=True)
+        mode_tag = input_mode.lower().replace(" ", "_").replace("(", "").replace(")", "").replace(".", "")
+        output_path = os.path.join(output_dir, f"ft_inference_{mode_tag}.{ 'wav' }")
+
+        SAMPLE_RATE = 24000
+        all_audio_chunks = []
+
+        if timed_generation and strict_timing:
+            total_duration_seconds = segments[-1].end.total_seconds() if segments else 0
+            total_duration_samples = int(total_duration_seconds * SAMPLE_RATE)
+            final_audio = np.zeros(total_duration_samples, dtype=np.float32)
+        elif timed_generation and not strict_timing:
+            current_time_seconds = 0.0
+
+        # Generate audio
+        for i, sub in enumerate(segments):
+            progress((i + 1) / len(segments), desc=f"TTS: Segment {i+1}/{len(segments)}")
+            raw_text = sub.content.strip().replace('\n', ' ')
+            if not raw_text:
+                continue
+            audio_chunk = np.asarray(XTTS_MODEL.inference(text=raw_text, language=language, gpt_cond_latent=gpt_cond_latent, speaker_embedding=speaker_embedding, temperature=XTTS_MODEL.config.temperature, length_penalty=XTTS_MODEL.config.length_penalty, repetition_penalty=XTTS_MODEL.config.repetition_penalty, top_k=XTTS_MODEL.config.top_k, top_p=XTTS_MODEL.config.top_p)["wav"], dtype=np.float32)
+            if timed_generation:
+                if strict_timing:
+                    start_sample = int(sub.start.total_seconds() * SAMPLE_RATE)
+                    end_sample = start_sample + len(audio_chunk)
+                    if end_sample > len(final_audio):
+                        audio_chunk = audio_chunk[:len(final_audio) - start_sample]
+                        end_sample = len(final_audio)
+                    final_audio[start_sample:end_sample] = audio_chunk
+                else:
+                    target_start_time = sub.start.total_seconds()
+                    silence_duration = target_start_time - current_time_seconds
+                    if silence_duration > 0:
+                        all_audio_chunks.append(np.zeros(int(silence_duration * SAMPLE_RATE), dtype=np.float32))
+                    all_audio_chunks.append(audio_chunk)
+                    current_time_seconds = target_start_time + len(audio_chunk) / SAMPLE_RATE
+            else:
+                all_audio_chunks.append(audio_chunk)
+                all_audio_chunks.append(np.zeros(int(0.25 * SAMPLE_RATE), dtype=np.float32))
+
+        if not timed_generation or (timed_generation and not strict_timing):
+            final_audio = np.concatenate(all_audio_chunks) if all_audio_chunks else np.array([], dtype=np.float32)
+
+        sf.write(output_path, final_audio, SAMPLE_RATE)
+        return output_path, f"✅ Success! Saved to {output_path}"
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return None, f"❌ Error during inference: {e}"

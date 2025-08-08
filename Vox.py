@@ -1336,8 +1336,16 @@ def _resolve_speaker_ref(uploaded_path, textbox_path, output_base_path):
         pass
     return ""  # let backend error gracefully if still empty
 
-def _run_ft_inference(lang, tts_text, uploaded_ref, textbox_ref, output_base_path):
-    ref = _resolve_speaker_ref(uploaded_ref, textbox_ref, output_base_path)
+def _run_ft_inference(ui_text_entry, txt_file_input, srt_vtt_file_input, input_mode, srt_timing_mode, tts_language, speaker_reference_upload):
+    return train_module.ft_inference_generate(
+        ui_text_entry,
+        txt_file_input,
+        srt_vtt_file_input,
+        input_mode,
+        srt_timing_mode,
+        tts_language,
+        speaker_reference_upload
+    )
     return train_module.run_tts(lang, tts_text, ref)
 
 # ========================================================================================
@@ -1537,33 +1545,88 @@ def create_gradio_ui():
                             ft_tensorboard_url = gr.Markdown(visible=False)
                         
                     with gr.Tab("3 - Inference"):
-                        
+
                         with gr.Row():
                             ft_autofill_btn = gr.Button("Find latest fine-tuned run", variant="secondary")
                             ft_autofill_status = gr.Markdown(visible=False)
                         gr.Markdown("Load the fine-tuned model using the paths from the previous step.")
+                        
                         with gr.Row():
                             with gr.Column():
                                 ft_load_btn = gr.Button("Step 3: Load Fine-tuned Model", variant="primary")
                                 ft_load_status = gr.Label(label="Progress")
                             with gr.Column():
                                 ft_tts_language = gr.Dropdown(label="Inference Language", value="en", choices=SUPPORTED_LANGUAGES)
-                                ft_tts_text = gr.Textbox(label="Text to Synthesize", value="This fine-tuned model sounds great!")
                                 ft_tts_btn = gr.Button("Step 4: Generate Speech", variant="primary")
+    
                         ft_tts_status = gr.Label(label="Progress")
+                        
                         with gr.Row():
                             ft_tts_output_audio = gr.Audio(label="Generated Audio")
                             ft_reference_audio_display = gr.Audio(label="Reference Audio Used")
+                        
                         with gr.Row():
                             ft_speaker_reference_upload = gr.Audio(
                                 label="Speaker reference (upload a short WAV/MP3, optional)",
-                                type="filepath"     # IMPORTANT: backend expects a string path
-                                )
+                                type="filepath"
+                            )
                             ft_speaker_reference = gr.Textbox(
                                 label="Speaker reference path (optional)",
                                 placeholder="Path to .wav of the target voice",
                                 interactive=True
                             )
+
+                        # === Fine-Tuning Inference Multi-mode ===
+                        gr.Markdown("### Choose how to import text to synthesize")
+                        
+                        ft_input_mode = gr.Radio(
+                            ["UI Text Entry", "Regular Text File (.txt)", "SRT/VTT Subtitle File"],
+                            value="UI Text Entry",
+                            label="Input Mode",
+                            interactive=True
+                        )
+
+                        # UI for each mode
+                        ft_ui_text_entry = gr.Textbox(
+                            label="Enter text here",
+                            placeholder="Type or paste the text to synthesize...",
+                            visible=True
+                        )
+                        ft_txt_file_input = gr.File(
+                            label="Upload .txt file",
+                            file_types=[".txt"],
+                            visible=False
+                        )
+                        ft_srt_vtt_file_input = gr.File(
+                            label="Upload .srt or .vtt file",
+                            file_types=[".srt", ".vtt"],
+                            visible=False
+                        )
+                        ft_srt_timing_mode = gr.Radio(
+                            ["Strict (Cut audio to fit)", "Flexible (Prevent audio cutoff)"],
+                            value="Flexible (Prevent audio cutoff)",
+                            label="SRT Timing Mode",
+                            visible=False
+                        )
+                    
+                        # Toggle visibility
+                        def toggle_input_mode(mode):
+                            return (
+                                gr.update(visible=(mode == "UI Text Entry")),
+                                gr.update(visible=(mode == "Regular Text File (.txt)")),
+                                gr.update(visible=(mode == "SRT/VTT Subtitle File")),
+                                gr.update(visible=(mode == "SRT/VTT Subtitle File"))
+                            )
+                    
+                        ft_input_mode.change(
+                            toggle_input_mode,
+                            inputs=ft_input_mode,
+                            outputs=[ft_ui_text_entry, ft_txt_file_input, ft_srt_vtt_file_input, ft_srt_timing_mode]
+                        )
+
+                        # Run button & outputs
+
+
             
             with gr.Tab("Coqui Voice Library", id=2):
                 with gr.Row():
@@ -1842,10 +1905,10 @@ def create_gradio_ui():
                 outputs=[ft_load_status]
             )
             ft_tts_btn.click(
-                _run_ft_inference,
-                inputs=[ft_tts_language, ft_tts_text, ft_speaker_reference_upload, ft_speaker_reference],
-                outputs=[ft_tts_status, ft_tts_output_audio, ft_reference_audio_display],
-            )
+        _run_ft_inference,
+        inputs=[ft_ui_text_entry, ft_txt_file_input, ft_srt_vtt_file_input, ft_input_mode, ft_srt_timing_mode, ft_tts_language, ft_speaker_reference_upload],
+        outputs=[ft_tts_output_audio, ft_tts_status]
+    )
 
         # Config Refresh Logic
         def refresh_all_config_lists():
