@@ -505,6 +505,12 @@ def create_gradio_ui():
                             gr.Markdown("## 1. Upload Your Content")
                             tts_input_file = gr.File(label="Input File (.txt, .srt, .vtt)", file_types=['.txt', '.srt', '.vtt'])
                             tts_input_mode = gr.Radio(label="Input Mode", choices=["Text File Mode", "SRT/VTT Mode"], value="Text File Mode")
+
+                            # --- Sentence Split Controls ---
+                            with gr.Accordion("Split sentences", open=False):
+                                tts_soft_limit = gr.Slider(label="Soft limit (characters)", minimum=120, maximum=230, step=1, value=210, info="Aim to split before this length, at punctuation if possible.")
+                                tts_hard_limit = gr.Slider(label="Hard limit (characters)", minimum=200, maximum=248, step=1, value=240, info="Absolute maximum per chunk (kept ≤248 for XTTS stability).")
+
                             
                             gr.Markdown("## 2. Configure Voice")
                             tts_voice_mode = gr.Radio(label="Voice Mode", choices=['Clone', 'Stock'], value='Stock')
@@ -882,7 +888,11 @@ def create_gradio_ui():
             tts_clone_source.change(fn=update_clone_source, inputs=tts_clone_source, outputs=[tts_upload_group, tts_library_group])
             def handle_input_mode_change(mode): return gr.update(visible=mode == "SRT/VTT Mode")
             tts_input_mode.change(fn=handle_input_mode_change, inputs=tts_input_mode, outputs=tts_srt_group)
-            tts_generate_btn.click(fn=coqui_xtts.run_tts_generation, inputs=[tts_input_file, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_input_mode, tts_srt_timing_mode, tts_device], outputs=[tts_output_audio, tts_status_textbox])
+            tts_generate_btn.click(
+                fn=coqui_xtts.run_tts_generation,
+                inputs=[tts_input_file, tts_language, tts_voice_mode, tts_clone_source, tts_library_voice, tts_clone_speaker_audio, tts_stock_voice, tts_output_format, tts_input_mode, tts_srt_timing_mode, tts_device, tts_soft_limit, tts_hard_limit],
+                outputs=[tts_output_audio, tts_status_textbox]
+            )
 
             # Coqui Voice Library Logic
             def refresh_coqui_library():

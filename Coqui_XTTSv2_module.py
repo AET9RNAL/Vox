@@ -230,6 +230,139 @@ def normalize_text(text, lang='en'):
         print(f"⚠️ Error in text normalization: {e}")
         return text
 
+
+# -------------------------------
+# Smart splitting
+# -------------------------------
+_ABBREVS = set([
+    "mr.", "mrs.", "ms.", "dr.", "prof.", "sr.", "jr.", "vs.", "etc.", "e.g.", "i.e.",
+    "fig.", "no.", "inc.", "ltd.", "dept.", "approx."
+])
+
+def _is_bad_period(text, idx):
+    """Avoid splitting on abbreviations, initials, or decimals like 3.14."""
+    left = text[max(0, idx-6):idx+1].lower()
+    # decimal number like 3.14
+    if re.search(r"\d\.\d", text[max(0, idx-1):idx+2]): 
+        return True
+    # single-letter initial "A." or "B."
+    if re.search(r"\b[A-Z]\.$", left): 
+        return True
+    # common abbreviations
+    for ab in _ABBREVS:
+        if left.endswith(ab): 
+            return True
+    return False
+
+def _find_split_index(text, soft_limit, hard_limit):
+    n = len(text)
+    if n <= hard_limit: 
+        return None  # no split needed
+
+    window_start = min(soft_limit, n-1)
+    window_end = min(hard_limit, n-1)
+
+    # 1) strong punctuation . ! ? …
+    strong = [".", "!", "?", "…"]
+    for i in range(window_end, window_start-1, -1):
+        ch = text[i]
+        if ch in strong and not _is_bad_period(text, i):
+            return i+1  # keep punctuation on the left
+
+    # 2) secondary punctuation , ; : — – -
+    secondary = [",", ";", ":", "—", "–", "-"]
+    for i in range(window_end, window_start-1, -1):
+        if text[i] in secondary:
+            return i+1
+
+    # 3) whitespace
+    for i in range(window_end, window_start-1, -1):
+        if text[i].isspace():
+            return i
+
+    # 4) last resort: hard cut
+    return hard_limit
+
+def split_long_text(text, soft_limit=210, hard_limit=240):
+    """
+    Splits text into chunks using punctuation/space preferences.
+    Ensures each chunk <= hard_limit (internally clamped to 248 for XTTS safety).
+    """
+    hard_cap = min(int(hard_limit), 248)
+    soft_cap = min(int(soft_limit), hard_cap-10) if soft_limit else hard_cap-10
+    if soft_cap < 50: 
+        soft_cap = 50  # sanity floor
+
+    text = re.sub(r"\s+", " ", text.strip())
+    if not text:
+        return []
+
+    chunks = []
+    cursor = 0
+    while cursor < len(text):
+        remaining = text[cursor:]
+        if len(remaining) <= hard_cap:
+            chunks.append(remaining.strip())
+            break
+        split_at = _find_split_index(remaining, soft_cap, hard_cap)
+        left = remaining[:split_at].strip()
+        if not left:
+            left = remaining[:hard_cap].strip()
+            split_at = len(left)
+        chunks.append(left)
+        cursor += split_at
+    return chunks
+
+def _expand_segments_with_splitter(segments, soft_limit, hard_limit, is_timed):
+    """
+    Apply splitting to segments:
+      - Text File Mode (is_timed=False): split any long line into multiple segments.
+      - SRT/VTT Mode (is_timed=True): only split if a single cue exceeds hard_limit; distribute time proportionally.
+    """
+    expanded = []
+    if not segments:
+        return expanded
+
+    hard_cap = min(int(hard_limit), 248)
+    soft_cap = min(int(soft_limit), hard_cap - 10) if soft_limit else hard_cap - 10
+
+    if not is_timed:
+        idx = 1
+        for sub in segments:
+            parts = split_long_text(sub.content, soft_cap, hard_cap)
+            if not parts:
+                continue
+            for p in parts:
+                expanded.append(srt.Subtitle(index=idx, start=timedelta(0), end=timedelta(0), content=p))
+                idx += 1
+        return expanded
+
+    # Timed mode: distribute durations proportionally
+    idx = 1
+    for sub in segments:
+        text_line = re.sub(r"\s+", " ", sub.content.strip())
+        if len(text_line) <= hard_cap:
+            expanded.append(srt.Subtitle(index=idx, start=sub.start, end=sub.end, content=text_line))
+            idx += 1
+            continue
+        parts = split_long_text(text_line, soft_cap, hard_cap)
+        if not parts:
+            continue
+        total_chars = sum(len(p) for p in parts) or 1
+        dur = (sub.end - sub.start).total_seconds()
+        cursor = sub.start
+        for k, p in enumerate(parts):
+            if k < len(parts) - 1:
+                frac = len(p) / total_chars
+                sec = max(0.05, dur * frac)
+                end = cursor + timedelta(seconds=sec)
+            else:
+                end = sub.end
+            expanded.append(srt.Subtitle(index=idx, start=cursor, end=end, content=p))
+            cursor = end
+            idx += 1
+    return expanded
+
 def parse_subtitle_file(path):
     with open(path, 'r', encoding='utf-8') as f: return list(srt.parse(f.read()))
 
@@ -321,7 +454,9 @@ def save_voice_to_library(audio_filepath, voice_name):
 
 def run_tts_generation(
     input_file, language, voice_mode, clone_source, library_voice, clone_speaker_audio, stock_voice,
-    output_format, input_mode, srt_timing_mode, tts_device, progress=gr.Progress(track_tqdm=True)
+    output_format, input_mode, srt_timing_mode, tts_device,
+    soft_limit=210, hard_limit=240,
+    progress=gr.Progress(track_tqdm=True)
 ):
     if input_file is None: return None, "❌ Error: Please upload an input file."
     if voice_mode == 'Clone':
@@ -348,6 +483,10 @@ def run_tts_generation(
         segments = parse_subtitle_file(input_filepath) if is_timed else parse_text_file(input_filepath)
 
         if not segments: return None, "🤷 No processable content found."
+
+        # Apply sentence splitting to keep under model limits
+        segments = _expand_segments_with_splitter(segments, soft_limit, hard_limit, is_timed)
+
 
         output_dir = "gradio_outputs"
         base_name = os.path.splitext(os.path.basename(input_filepath))[0]
