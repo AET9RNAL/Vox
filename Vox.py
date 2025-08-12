@@ -505,7 +505,8 @@ def create_gradio_ui():
                             gr.Markdown("## 1. Upload Your Content")
                             tts_input_file = gr.File(label="Input File (.txt, .srt, .vtt)", file_types=['.txt', '.srt', '.vtt'])
                             tts_input_mode = gr.Radio(label="Input Mode", choices=["Text File Mode", "SRT/VTT Mode"], value="Text File Mode")
-
+                            with gr.Group(visible=False) as tts_srt_group:
+                                tts_srt_timing_mode = gr.Radio(label="SRT/VTT Timing Mode", choices=["Strict (Cut audio to fit)", "Flexible (Prevent audio cutoff)"], value="Flexible (Prevent audio cutoff)")
                             # --- Sentence Split Controls ---
                             with gr.Accordion("Split sentences", open=False):
                                 tts_soft_limit = gr.Slider(label="Soft limit (characters)", minimum=120, maximum=230, step=1, value=210, info="Aim to split before this length, at punctuation if possible.")
@@ -525,8 +526,7 @@ def create_gradio_ui():
                             gr.Markdown("## 3. Configure Output")
                             tts_language = gr.Dropdown(label="Language", choices=coqui_xtts.SUPPORTED_LANGUAGES, value="en")
                             tts_output_format = gr.Radio(label="Output Format", choices=['wav', 'mp3'], value='wav')
-                            with gr.Group(visible=False) as tts_srt_group:
-                                tts_srt_timing_mode = gr.Radio(label="SRT/VTT Timing Mode", choices=["Strict (Cut audio to fit)", "Flexible (Prevent audio cutoff)"], value="Flexible (Prevent audio cutoff)")
+                            
                             
                             tts_generate_btn = gr.Button("Generate Voiceover", variant="primary")
 
