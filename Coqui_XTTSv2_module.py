@@ -16,7 +16,7 @@ import json
 import shutil
 import traceback
 import sys
-
+from loguru import logger
 
 # Coqui Imports
 from TTS.utils.manage import ModelManager
@@ -84,7 +84,7 @@ def clear_tts_cache():
             cache_path = os.path.join(os.path.expanduser("~"), ".local", "share", "tts")
 
         if os.path.exists(cache_path):
-            print(f"🚮 Clearing TTS model cache at: {cache_path}")
+            logger.info(f"🚮 Clearing TTS model cache at: {cache_path}")
             shutil.rmtree(cache_path)
             tts_model = None 
             return "✅ TTS model cache cleared successfully. You may need to restart the app."
@@ -166,7 +166,7 @@ def load_tts_model(device):
             config_data = json.load(f)
 
         if config_data.get("model_args", {}).get("speaker_encoder_config_path") is None:
-            print("ℹ️ Applying workaround for 'speaker_encoder_config_path': null issue.")
+            logger.info("ℹ️ Applying workaround for 'speaker_encoder_config_path': null issue.")
             
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', dir=model_dir, encoding='utf-8') as dummy_file:
                 json.dump({}, dummy_file)
@@ -181,7 +181,7 @@ def load_tts_model(device):
             config_to_use = temp_config_path
         # --- End of Workaround ---
 
-        print(f"⏳ Loading Coqui TTS model from local path: {model_dir} to device: {device}...")
+        logger.info(f"⏳ Loading Coqui TTS model from local path: {model_dir} to device: {device}...")
         
         # Load the model using the (potentially temporary) config file.
         # The TTS class will use the config_path and find other model files in the same directory.
@@ -192,12 +192,12 @@ def load_tts_model(device):
         )
         
         current_tts_device = device
-        print(f"✅ TTS Model loaded successfully from local files on {device}.")
+        logger.success(f"✅ TTS Model loaded successfully from local files on {device}.")
     
     except Exception as e:
-        print("\n--- DETAILED TTS LOADING ERROR ---")
+        logger.info("\n--- DETAILED TTS LOADING ERROR ---")
         traceback.print_exc()
-        print("----------------------------------\n")
+        logger.info("----------------------------------\n")
         error_message = f"❌ Failed to load local TTS model: {e}"
         raise gr.Error(error_message)
 
@@ -224,10 +224,10 @@ def normalize_text(text, lang='en'):
         return re.sub(r'\b\d+\b', lambda m: num2words(int(m.group(0)), lang=lang), text)
     except NotImplementedError:
         # Fallback for languages not supported by num2words
-        print(f"⚠️ num2words does not support language '{lang}'. Numbers will not be converted to words.")
+        logger.warning(f"⚠️ num2words does not support language '{lang}'. Numbers will not be converted to words.")
         return text
     except Exception as e:
-        print(f"⚠️ Error in text normalization: {e}")
+        logger.critical(f"⚠️ Error in text normalization: {e}")
         return text
 
 

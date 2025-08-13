@@ -25,7 +25,7 @@ from pydub import AudioSegment
 from pydub.utils import which as pydub_which
 import pysrt
 from collections import namedtuple
-
+from loguru import logger
 
 
 # Stable-TS Imports
@@ -36,21 +36,22 @@ import stable_whisper.audio
 try:
     import Coqui_XTTSv2_train_module as train_module
 except ImportError:
-    print("WARNING: Coqui_XTTSv2_train_module.py not found. The Fine-Tuning tab will be disabled.")
+    logger.critical("WARNING: Coqui_XTTSv2_train_module.py not found. The Fine-Tuning tab will be disabled.")
     train_module = None
+
 
 # Higgs module import
 try:
     import higgs_v3_module as higgs
 except ImportError:
-    print("WARNING: higgs_v3_module.py not found. The Higgs tab will be disabled.")
+    logger.critical("WARNING: higgs_v3_module.py not found. The Higgs tab will be disabled.")
     higgs = None
 
 # Coqui XTTSv2 Import
 try:
     import Coqui_XTTSv2_module as coqui_xtts
 except ImportError:
-    print("WARNING: Coqui_XTTSv2_module.py not found. The Coqui XTTSv2 tab will be disabled.")
+    logger.critical("WARNING: Coqui_XTTSv2_module.py not found. The Coqui XTTSv2 tab will be disabled.")
     coqui_xtts = None
 
 # ========================================================================================
@@ -83,16 +84,16 @@ AVAILABLE_DEVICES = get_available_devices()
 def check_ffmpeg():
     """Checks if FFmpeg is installed and in the system's PATH."""
     if shutil.which("ffmpeg") or pydub_which("ffmpeg"):
-        print("✅ FFmpeg found.")
+        logger.success("✅ FFmpeg found.")
         return True
     else:
-        print("❌ FFmpeg not found.")
-        print("This application requires FFmpeg for audio processing.")
-        print("Please install it and ensure it's in your system's PATH.")
-        print("Installation instructions:")
-        print("  - Windows: Download from https://ffmpeg.org/download.html (and add to PATH)")
-        print("  - MacOS (via Homebrew): brew install ffmpeg")
-        print("  - Linux (Debian/Ubuntu): sudo apt update && sudo apt install ffmpeg")
+        logger.critical("❌ FFmpeg not found.")
+        logger.info("This application requires FFmpeg for audio processing.")
+        logger.info("Please install it and ensure it's in your system's PATH.")
+        logger.info("Installation instructions:")
+        logger.info("  - Windows: Download from https://ffmpeg.org/download.html (and add to PATH)")
+        logger.info("  - MacOS (via Homebrew): brew install ffmpeg")
+        logger.info("  - Linux (Debian/Ubuntu): sudo apt update && sudo apt install ffmpeg")
         return False
 
 # ========================================================================================
@@ -175,7 +176,7 @@ def load_whisper_config(config_name):
         
         return updates
     except Exception as e:
-        print(f"Error loading Whisper config {config_name}: {e}")
+        logger.critical(f"Error loading Whisper config {config_name}: {e}")
         return [gr.update()] * (len(keys) + 2)
 
 def delete_whisper_config(config_name):
@@ -198,7 +199,7 @@ def load_whisper_model(model_size, device, engine):
     if current_whisper_model_size == model_size and current_whisper_device == device and current_whisper_engine == engine:
         return "Whisper model is already loaded."
     
-    print(f"⏳ Loading {engine} model '{model_size}' to device: {device}...")
+    logger.info(f"⏳ Loading {engine} model '{model_size}' to device: {device}...")
     if engine == "OpenAI Whisper":
         if stable_whisper_model is not None: stable_whisper_model = None; gc.collect(); torch.cuda.empty_cache()
         whisper_model = whisper.load_model(model_size, device=device)
@@ -209,7 +210,7 @@ def load_whisper_model(model_size, device, engine):
     current_whisper_device = device
     current_whisper_model_size = model_size
     current_whisper_engine = engine
-    print(f"✅ {engine} Model loaded successfully on {device}.")
+    logger.success(f"✅ {engine} Model loaded successfully on {device}.")
     return "Whisper model is ready."
 
 
@@ -275,14 +276,14 @@ def run_whisper_transcription(
 
                 # Merging
                 if merge_by_gap_enabled:
-                    print("Applying Merge by Gap...")
+                    logger.info("Applying Merge by Gap...")
                     result_obj.merge_by_gap(min_gap=merge_by_gap_min_gap, max_words=merge_by_gap_max_words)
                 if merge_by_punctuation_enabled and merge_by_punctuation_string:
-                    print("Applying Merge by Punctuation...")
+                    logger.info("Applying Merge by Punctuation...")
                     punctuation_list = [p.strip() for p in merge_by_punctuation_string.split(',') if p.strip()]
                     result_obj.merge_by_punctuation(punctuation=punctuation_list)
                 if merge_all_segments_enabled:
-                    print("Merging all segments...")
+                    logger.info("Merging all segments...")
                     result_obj.merge_all_segments()
 
                 # Refinement & Cleaning
@@ -295,11 +296,11 @@ def run_whisper_transcription(
 
                 # Filling Gaps (last)
                 if fill_gaps_enabled and fill_gaps_file_input is not None:
-                    print(f"Applying Fill Gaps using file: {fill_gaps_file_input.name}")
+                    logger.info(f"Applying Fill Gaps using file: {fill_gaps_file_input.name}")
                     try:
                         result_obj.fill_in_gaps(fill_gaps_file_input.name, min_gap=fill_gaps_min_gap)
                     except Exception as e:
-                        print(f"⚠️ Warning: Could not fill gaps. Error: {e}")
+                        logger.warning(f"⚠️ Warning: Could not fill gaps. Error: {e}")
 
             full_text = result_obj.text
             segments = result_obj.segments
@@ -332,7 +333,7 @@ def run_whisper_transcription(
             return full_text, content, [pipeline_filepath], pipeline_filepath
 
     except Exception as e:
-        print("\n--- DETAILED WHISPER ERROR ---"); traceback.print_exc(); print("------------------------------\n")
+        logger.critical("\n--- DETAILED WHISPER ERROR ---"); traceback.print_exc(); print("------------------------------\n")
         return f"❌ An unexpected error occurred: {e}", "", [], None
 
 
@@ -1013,34 +1014,34 @@ def create_gradio_ui():
 
 if __name__ == "__main__":
     if not check_ffmpeg():
-        print("\nHalting execution because FFmpeg is not found.")
+        logger.critical("\nHalting execution because FFmpeg is not found.")
         sys.exit(1)
     
     # Try to import Higgs Audio at startup
-    print("\n" + "="*60)
-    print("🔧 CHECKING HIGGS AUDIO AVAILABILITY")
-    print("="*60)
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("🔧 CHECKING HIGGS AUDIO AVAILABILITY")
+    logger.info("="*60)
+    logger.info("="*60)
     if higgs:
         higgs.try_import_higgs()
         if higgs.HIGGS_AVAILABLE:
-            print("🎉 Higgs Audio is available! The Higgs TTS tab will be enabled.")
+            logger.success("🎉 Higgs Audio is available! The Higgs TTS tab will be enabled.")
         else:
-         print("⚠️ Higgs Audio is not available. The Higgs TTS tab will be disabled.")
+         logger.critical("⚠️ Higgs Audio is not available. The Higgs TTS tab will be disabled.")
     else:
-        print("ℹ️ Higgs module not found. The Higgs TTS tab will be disabled.")
+        logger.info("ℹ️ Higgs module not found. The Higgs TTS tab will be disabled.")
     
     if coqui_xtts:
         coqui_xtts.check_xtts_availability()
         if coqui_xtts.XTTS_AVAILABLE:
-            print("🎉 Coqui XTTS is available! The Coqui XTTS tab will be enabled.")
+            logger.success("🎉 Coqui XTTS is available! The Coqui XTTS tab will be enabled.")
         else:
-            print("⚠️ Coqui XTTS is not available. The Coqui XTTS tab will be disabled.")
+            logger.warning("⚠️ Coqui XTTS is not available. The Coqui XTTS tab will be disabled.")
 
     
     app = create_gradio_ui()
     
-    print("\n✅ Gradio UI created. Launching Web UI...")
-    print("➡️ Access the UI by opening the 'Running on local URL' link below in your browser.")
+    logger.success("\n✅ Gradio UI created. Launching Web UI...")
+    logger.info("➡️ Access the UI by opening the 'Running on local URL' link below in your browser.")
     
     app.launch()

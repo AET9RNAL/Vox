@@ -12,20 +12,20 @@ from faster_whisper import WhisperModel
 from tqdm import tqdm
 import gradio as gr
 import re
-
+from loguru import logger
 # Check if 'trainer' is available, if not, define a dummy class to avoid import errors
 # In a real environment, the 'trainer' package from TTS should be installed.
 try:
     from trainer import Trainer, TrainerArgs
 except ImportError:
-    print("Warning: 'trainer' could not be imported. Using dummy classes. Ensure TTS is installed for full functionality.")
+    logger.warning("Warning: 'trainer' could not be imported. Using dummy classes. Ensure TTS is installed for full functionality.")
     class Trainer:
         def __init__(self, *args, **kwargs):
             self.output_path = "dummy_trainer_output"
         def fit(self): pass
         @staticmethod
         def init_from_config(config):
-            print("Dummy Trainer initialized from config.")
+            logger.info("Dummy Trainer initialized from config.")
             return Trainer()
 
     class TrainerArgs:
@@ -70,9 +70,9 @@ def format_audio_list(audio_files, target_language="en", out_path=None, buffer=0
     os.makedirs(out_path, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Loading Whisper Model for transcription...")
+    logger.info("Loading Whisper Model for transcription...")
     compute_type = "float16" if device == "cuda" else "default"
-    print(f"Using compute type: {compute_type}")
+    logger.info(f"Using compute type: {compute_type}")
     asr_model = WhisperModel("large-v2", device=device, compute_type=compute_type)
 
     metadata = {"audio_file": [], "text": [], "speaker_name": []}
@@ -177,10 +177,10 @@ def preprocess_dataset(audio_files, language, out_path, progress=None):
 
     if audio_total_size < 120:
         message = "The total duration of the provided audio files should be at least 2 minutes."
-        print(message)
+        logger.warning(message)
         return message, "", ""
 
-    print("Dataset processed successfully!")
+    logger.success("Dataset processed successfully!")
     return "Dataset Processed!", train_meta, eval_meta
 
 # --- Training Backend ---
@@ -212,7 +212,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, train_csv, eval_csv,
     files_to_download = [dvae_checkpoint_link, mel_norm_link, tokenizer_file_link, xtts_checkpoint_link, xtts_config_link]
     files_on_disk = [dvae_checkpoint, mel_norm_file, tokenizer_file, xtts_checkpoint, xtts_config_file]
     if not all(os.path.exists(f) for f in files_on_disk):
-        print(" > Downloading original XTTS v2.0 model files...")
+        logger.info(" > Downloading original XTTS v2.0 model files...")
         ModelManager._download_model_files(files_to_download, CHECKPOINTS_OUT_PATH, progress_bar=True)
 
     model_args = GPTArgs(
@@ -287,7 +287,7 @@ def train_model(language, train_csv, eval_csv, num_epochs, batch_size, grad_acum
     shutil.copy(vocab_file, exp_path)
 
     ft_xtts_checkpoint = os.path.join(exp_path, "best_model.pth")
-    print("Model training finished successfully!")
+    logger.success("Model training finished successfully!")
     clear_gpu_cache()
     
     log_dir = os.path.dirname(exp_path)
@@ -299,7 +299,7 @@ def launch_tensorboard(log_dir):
         return "Log directory not found. Please run training first.", gr.update(visible=False)
     
     command = f'tensorboard --logdir="{log_dir}"'
-    print(f"Launching TensorBoard with command: {command}")
+    logger.info(f"Launching TensorBoard with command: {command}")
 
     subprocess.Popen(f'start cmd /k "{command}"', shell=True)
     
@@ -404,7 +404,7 @@ def load_or_discover_model(xtts_checkpoint: str, xtts_config: str, xtts_vocab: s
     config.load_json(xtts_config)
     XTTS_MODEL = Xtts.init_from_config(config)
 
-    print("Loading fine-tuned XTTS model (auto-discovery)...")
+    logger.info("Loading fine-tuned XTTS model (auto-discovery)...")
     XTTS_MODEL.load_checkpoint(
         config,
         checkpoint_path=xtts_checkpoint,
@@ -416,7 +416,7 @@ def load_or_discover_model(xtts_checkpoint: str, xtts_config: str, xtts_vocab: s
     if torch.cuda.is_available():
         XTTS_MODEL.cuda()
 
-    print("Model loaded successfully!")
+    logger.success("Model loaded successfully!")
     return "Model Loaded!"
 
 def load_model(xtts_checkpoint, xtts_config, xtts_vocab):
@@ -431,7 +431,7 @@ def load_model(xtts_checkpoint, xtts_config, xtts_vocab):
     config.load_json(xtts_config)
     XTTS_MODEL = Xtts.init_from_config(config)
     
-    print("Loading fine-tuned XTTS model...")
+    logger.info("Loading fine-tuned XTTS model...")
     # FIX: Explicitly set speaker_file_path to prevent an error when loading fine-tuned models.
     XTTS_MODEL.load_checkpoint(
         config, 
@@ -444,7 +444,7 @@ def load_model(xtts_checkpoint, xtts_config, xtts_vocab):
     if torch.cuda.is_available():
         XTTS_MODEL.cuda()
 
-    print("Model loaded successfully!")
+    logger.success("Model loaded successfully!")
     return "Model Loaded!"
 
 def run_tts(lang, tts_text, speaker_audio_file):

@@ -30,5 +30,5 @@ ffmpeg-python
 pysrt
 faster-whisper
 
-#Coaqui-XTTSv2 training dependencies
+#Coqui-XTTSv2 training dependencies
 hf_xet

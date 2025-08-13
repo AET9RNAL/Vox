@@ -16,7 +16,7 @@ import traceback
 import gc
 from pathlib import Path
 import pysrt
-
+from loguru import logger
 
 
 
@@ -44,7 +44,7 @@ def try_import_higgs():
     # Make sure we are modifying the global variables ---
     global HiggsAudioServeEngine, HiggsAudioResponse, ChatMLSample, Message, AudioContent
     
-    print("🔍 Attempting to import Higgs Audio...")
+    logger.info("🔍 Attempting to import Higgs Audio...")
     
     # Method 1: Try direct import (if already installed)
     try:
@@ -55,25 +55,25 @@ def try_import_higgs():
         HiggsAudioServeEngine, HiggsAudioResponse, ChatMLSample, Message, AudioContent = HASE, HAR, CMS, M, AC
         
         HIGGS_AVAILABLE = True
-        print("✅ Higgs Audio library imported successfully (direct import)")
+        logger.success("✅ Higgs Audio library imported successfully (direct import)")
         return True
     except ImportError as e:
         higgs_import_error = str(e)
-        print(f"⚠️ Direct import failed: {e}")
+        logger.critical(f"⚠️ Direct import failed: {e}")
         
         # Provide specific guidance based on error type
         if "AutoProcessor" in str(e):
-            print("💡 DIAGNOSIS: Transformers version incompatibility detected")
-            print("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix version conflicts")
+            logger.warning("💡 DIAGNOSIS: Transformers version incompatibility detected")
+            logger.warning("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix version conflicts")
         elif "torchvision::nms" in str(e):
-            print("💡 DIAGNOSIS: PyTorch/TorchVision compatibility issue detected")
-            print("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix PyTorch versions")
+            logger.warning("💡 DIAGNOSIS: PyTorch/TorchVision compatibility issue detected")
+            logger.warning("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix PyTorch versions")
     except Exception as e:
         higgs_import_error = str(e)
-        print(f"⚠️ Unexpected error in direct import: {e}")
+        logger.critical(f"⚠️ Unexpected error in direct import: {e}")
         if "torchvision::nms" in str(e):
-            print("💡 DIAGNOSIS: PyTorch/TorchVision NMS operation compatibility issue")
-            print("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix PyTorch versions")
+            logger.warning("💡 DIAGNOSIS: PyTorch/TorchVision NMS operation compatibility issue")
+            logger.warning("💡 SOLUTION: Run 'fix_higgs_dependencies.bat' to fix PyTorch versions")
     
     # Method 2: Try adding higgs-audio directory to path
     try:
@@ -81,7 +81,7 @@ def try_import_higgs():
         import os
         higgs_path = os.path.join(os.path.dirname(__file__), "higgs-audio")
         if os.path.exists(higgs_path) and higgs_path not in sys.path:
-            print(f"📁 Adding higgs-audio path: {higgs_path}")
+            logger.info(f"📁 Adding higgs-audio path: {higgs_path}")
             sys.path.insert(0, higgs_path)
             
             from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine as HASE, HiggsAudioResponse as HAR
@@ -91,45 +91,45 @@ def try_import_higgs():
             HiggsAudioServeEngine, HiggsAudioResponse, ChatMLSample, Message, AudioContent = HASE, HAR, CMS, M, AC
 
             HIGGS_AVAILABLE = True
-            print("✅ Higgs Audio library imported successfully (with path modification)")
+            logger.success("✅ Higgs Audio library imported successfully (with path modification)")
             return True
     except ImportError as e:
-        print(f"⚠️ Path-based import failed: {e}")
+        logger.critical(f"⚠️ Path-based import failed: {e}")
         higgs_import_error = str(e)
         
         # Enhanced error diagnosis
         if "AutoProcessor" in str(e):
-            print("💡 DIAGNOSIS: Transformers version is incompatible with Higgs Audio")
+            logger.warning("💡 DIAGNOSIS: Transformers version is incompatible with Higgs Audio")
             try:
                 import transformers
-                print(f"💡 Current transformers version: {transformers.__version__}")
-                print("💡 Required: 4.45.1 <= version < 4.47.0")
+                logger.info(f"💡 Current transformers version: {transformers.__version__}")
+                logger.warning("💡 Required: 4.45.1 <= version < 4.47.0")
             except:
                 pass
         elif "No module named" in str(e):
-            print("💡 DIAGNOSIS: Missing Higgs Audio installation")
-            print("💡 SOLUTION: Run 'pip install -e ./higgs-audio' or use setup-run.bat")
+            logger.warning("💡 DIAGNOSIS: Missing Higgs Audio installation")
+            logger.info("💡 SOLUTION: Run 'pip install -e ./higgs-audio' or use setup-run.bat")
     except Exception as e:
-        print(f"⚠️ Unexpected error during path-based import: {e}")
+        logger.critical(f"⚠️ Unexpected error during path-based import: {e}")
         higgs_import_error = str(e)
     
     # Method 3: Enhanced directory check and diagnostics
     higgs_dir = os.path.join(os.path.dirname(__file__), "higgs-audio")
     if os.path.exists(higgs_dir):
-        print(f"📁 Higgs-audio directory found at: {higgs_dir}")
+        logger.info(f"📁 Higgs-audio directory found at: {higgs_dir}")
         boson_dir = os.path.join(higgs_dir, "boson_multimodal")
         if os.path.exists(boson_dir):
-            print(f"📁 boson_multimodal package found at: {boson_dir}")
-            print("💡 Try running: conda run -n coqui_tts_env pip install -e ./higgs-audio")
+            logger.info(f"📁 boson_multimodal package found at: {boson_dir}")
+            logger.info("💡 Try running: conda run -n coqui_tts_env pip install -e ./higgs-audio")
         else:
-            print("❌ boson_multimodal package not found in higgs-audio directory")
-            print("💡 SOLUTION: Re-clone the repository or run setup-run.bat")
+            logger.critical("❌ boson_multimodal package not found in higgs-audio directory")
+            logger.info("💡 SOLUTION: Re-clone the repository or run setup-run.bat")
     else:
-        print("❌ higgs-audio directory not found")
+        logger.critical("❌ higgs-audio directory not found")
     
-    print("⚠️ Higgs Audio library (boson_multimodal) not available.")
-    print("⚠️ The 'Higgs TTS' tab will be disabled.")
-    print(f"⚠️ Last error: {higgs_import_error}")
+    logger.info("⚠️ Higgs Audio library (boson_multimodal) not available.")
+    logger.warning("⚠️ The 'Higgs TTS' tab will be disabled.")
+    logger.critical(f"⚠️ Last error: {higgs_import_error}")
     
     # Run detailed verification
     verify_higgs_installation()
@@ -143,62 +143,62 @@ def verify_higgs_installation():
     if HIGGS_AVAILABLE:
         return True
     
-    print("\n=== HIGGS AUDIO INSTALLATION VERIFICATION ===")
+    logger.info("\n=== HIGGS AUDIO INSTALLATION VERIFICATION ===")
     
     # Check if higgs-audio directory exists
     higgs_dir = os.path.join(os.path.dirname(__file__), "higgs-audio")
     if not os.path.exists(higgs_dir):
-        print("❌ higgs-audio directory not found")
+        logger.critical("❌ higgs-audio directory not found")
         return False
     
-    print(f"✅ higgs-audio directory found at: {higgs_dir}")
+    logger.success(f"✅ higgs-audio directory found at: {higgs_dir}")
     
     # Check if boson_multimodal exists
     boson_dir = os.path.join(higgs_dir, "boson_multimodal")
     if not os.path.exists(boson_dir):
-        print("❌ boson_multimodal package not found")
+        logger.critical("❌ boson_multimodal package not found")
         return False
     
-    print(f"✅ boson_multimodal package found at: {boson_dir}")
+    logger.success(f"✅ boson_multimodal package found at: {boson_dir}")
     
     # Check if serve module exists
     serve_dir = os.path.join(boson_dir, "serve")
     if not os.path.exists(serve_dir):
-        print("❌ serve module not found in boson_multimodal")
+        logger.critical("❌ serve module not found in boson_multimodal")
         return False
     
-    print("✅ serve module found")
+    logger.success("✅ serve module found")
     
     # Check if __init__.py exists in serve directory
     serve_init = os.path.join(serve_dir, "__init__.py")
     if not os.path.exists(serve_init):
-        print("❌ __init__.py not found in serve module")
+        logger.critical("❌ __init__.py not found in serve module")
         return False
     
-    print("✅ serve module has __init__.py")
+    logger.success("✅ serve module has __init__.py")
     
     # Check if serve_engine.py exists
     serve_engine = os.path.join(serve_dir, "serve_engine.py")
     if not os.path.exists(serve_engine):
-        print("❌ serve_engine.py not found")
+        logger.critical("❌ serve_engine.py not found")
         return False
     
-    print("✅ serve_engine.py found")
+    logger.success("✅ serve_engine.py found")
     
     # Check transformers version
     try:
         import transformers
         version = transformers.__version__
-        print(f"✅ Transformers version: {version}")
+        logger.info(f"✅ Transformers version: {version}")
         
         # Check if version is compatible
         version_parts = version.split('.')
         major_minor = float(f"{version_parts[0]}.{version_parts[1]}")
         if not (4.45 <= major_minor < 4.47):
-            print(f"⚠️ WARNING: Transformers version {version} may not be compatible")
-            print("   Required: 4.45.1 <= version < 4.47.0")
+            logger.warning(f"⚠️ WARNING: Transformers version {version} may not be compatible")
+            logger.warning("   Required: 4.45.1 <= version < 4.47.0")
     except Exception as e:
-        print(f"⚠️ WARNING: Could not check Transformers version: {e}")
+        logger.warning(f"⚠️ WARNING: Could not check Transformers version: {e}")
     
     # Try to check if the package is installed in the environment
     try:
@@ -210,20 +210,20 @@ def verify_higgs_installation():
                               capture_output=True, text=True)
         if result.returncode == 0:
             site_packages = result.stdout.strip()
-            print(f"✅ Site packages directory: {site_packages}")
+            logger.success(f"✅ Site packages directory: {site_packages}")
             
             # Check if boson_multimodal is in site-packages
             boson_in_site = os.path.join(site_packages, "boson_multimodal")
             if os.path.exists(boson_in_site):
-                print("✅ boson_multimodal found in site-packages")
+                logger.success("✅ boson_multimodal found in site-packages")
             else:
-                print("❌ boson_multimodal not found in site-packages")
-                print("💡 This suggests the package wasn't installed correctly")
+                logger.critical("❌ boson_multimodal not found in site-packages")
+                logger.warning("💡 This suggests the package wasn't installed correctly")
                 return False
     except Exception as e:
-        print(f"⚠️ WARNING: Could not check site-packages: {e}")
+        logger.warning(f"⚠️ WARNING: Could not check site-packages: {e}")
     
-    print("=== END VERIFICATION ===\n")
+    logger.info("=== END VERIFICATION ===\n")
     return False
 
 
@@ -231,10 +231,10 @@ def verify_higgs_installation():
 try:
     from faster_whisper import WhisperModel
     FASTER_WHISPER_AVAILABLE = True
-    print("✅ Using faster-whisper for Higgs transcription")
+    logger.success("✅ Using faster-whisper for Higgs transcription")
 except ImportError:
     FASTER_WHISPER_AVAILABLE = False
-    print("⚠️ faster-whisper not available for Higgs - voice samples will use dummy text")
+    logger.warning("⚠️ faster-whisper not available for Higgs - voice samples will use dummy text")
 
 
 # Higgs Config
@@ -305,14 +305,14 @@ def load_higgs_model(device):
     global higgs_serve_engine, current_higgs_device
     if not HIGGS_AVAILABLE: raise gr.Error("Higgs Audio library not installed. Please run setup-run.bat.")
     if higgs_serve_engine is None or current_higgs_device != device:
-        print(f"⏳ Loading Higgs Audio model to device: {device}...")
+        logger.info(f"⏳ Loading Higgs Audio model to device: {device}...")
         try:
             # Ensure HiggsAudioServeEngine is not None before using it ---
             if HiggsAudioServeEngine is None:
                 raise RuntimeError("HiggsAudioServeEngine not imported. Check installation.")
             higgs_serve_engine = HiggsAudioServeEngine(HIGGS_MODEL_PATH, HIGGS_AUDIO_TOKENIZER_PATH, device=device)
             current_higgs_device = device
-            print(f"✅ Higgs Audio Model loaded successfully on {device}.")
+            logger.success(f"✅ Higgs Audio Model loaded successfully on {device}.")
         except Exception as e:
             traceback.print_exc()
             raise RuntimeError(f"Failed to load Higgs Audio model: {e}")
@@ -322,12 +322,12 @@ def load_higgs_whisper_model(device):
     global higgs_whisper_model
     if not FASTER_WHISPER_AVAILABLE: return
     if higgs_whisper_model is None:
-        print("⏳ Loading faster-whisper model for Higgs...")
+        logger.info("⏳ Loading faster-whisper model for Higgs...")
         try:
             higgs_whisper_model = WhisperModel("base", device=device, compute_type="float16" if device == "cuda" else "int8")
-            print("✅ faster-whisper model loaded.")
+            logger.success("✅ faster-whisper model loaded.")
         except Exception as e:
-            print(f"❌ Failed to load faster-whisper model: {e}")
+            logger.critical(f"❌ Failed to load faster-whisper model: {e}")
 
 
 # ========================================================================================
@@ -367,10 +367,10 @@ def higgs_transcribe_audio(audio_path, device):
         segments, _ = higgs_whisper_model.transcribe(audio_path, language="en")
         transcription = " ".join([segment.text for segment in segments]).strip()
         if not transcription: transcription = "This is a voice sample for cloning."
-        print(f"🎤 Higgs Transcribed: {transcription[:100]}...")
+        logger.info(f"🎤 Higgs Transcribed: {transcription[:100]}...")
         return transcription
     except Exception as e:
-        print(f"❌ Higgs Transcription failed: {e}")
+        logger.critical(f"❌ Higgs Transcription failed: {e}")
         return "This is a voice sample for cloning."
 
 def higgs_create_voice_reference_txt(audio_path, device, transcript_sample=None):
